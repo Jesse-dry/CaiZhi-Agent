@@ -130,7 +130,7 @@
 ## 项目结构（规划）
 
 ```
-material-ai-tutor/
+CaiZhi-Agent/
 ├── frontend/                # 前端交互层
 │   ├── app.py               # Streamlit/Gradio 主入口
 │   └── components/          # UI 组件
