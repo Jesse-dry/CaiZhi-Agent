@@ -1,0 +1,32 @@
+# 环境变量 - 含 API Key，绝对不能提交
+.env
+
+# 本地文件 - 不推送
+docs/新手上手指南.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# 向量索引（体积大，本地生成即可）
+data/vector_index/
+*.faiss
+*.pkl
+
+# 本地测试教材（体积大，不入库）
+data/textbooks/*.pdf
+data/textbooks/*.djvu
+
+# OS 系统生成文件
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+~$*
