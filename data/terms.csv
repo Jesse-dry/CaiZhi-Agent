@@ -1,0 +1,11 @@
+english,chinese,definition,related_points
+Quenching,淬火,将奥氏体化后的钢快速冷却以获得高硬度组织的热处理工艺,rapid_cooling;martensite;hardness
+Austenite,奥氏体,γ-Fe 中的固溶体，常作为钢热处理转变的起始组织,FCC;phase_transformation
+Martensite,马氏体,快速冷却形成的过饱和固溶体组织，硬度高但韧性较差,quenching;diffusionless_transformation;hardness
+Rapid cooling,快速冷却,使碳原子来不及充分扩散的冷却过程,quenching;diffusion_suppressed
+Diffusionless transformation,无扩散相变,原子不发生长程扩散的相变方式,martensite;phase_transformation
+Lattice distortion,晶格畸变,晶体结构因碳原子过饱和等原因发生畸变,martensite;hardness
+Dislocation motion,位错运动,金属塑性变形的重要微观机制,hardness;strength
+Hardness,硬度,材料抵抗局部塑性变形的能力,mechanical_property
+Tempering,回火,淬火后重新加热以降低内应力并改善韧性的工艺,toughness;stress_relief
+Toughness,韧性,材料吸收能量并抵抗断裂的能力,mechanical_property

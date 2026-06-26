@@ -1,0 +1,49 @@
+[
+  {
+    "id": "Q001",
+    "question": "淬火后钢的硬度提高，主要原因是什么？",
+    "options": {
+      "A": "晶粒显著细化",
+      "B": "形成马氏体",
+      "C": "形成粗大珠光体",
+      "D": "碳含量降低"
+    },
+    "answer": "B",
+    "knowledge_points": [
+      "quenching",
+      "rapid_cooling",
+      "martensite",
+      "lattice_distortion",
+      "hardness"
+    ],
+    "misconceptions": {
+      "A": {
+        "type": "把淬火强化误认为晶粒细化强化",
+        "missing_points": [
+          "martensite",
+          "lattice_distortion",
+          "dislocation_motion"
+        ],
+        "remediation": "复习马氏体转变、晶格畸变与硬度提高之间的因果关系。"
+      },
+      "C": {
+        "type": "不理解冷却速度对组织转变的影响",
+        "missing_points": [
+          "cooling_rate",
+          "pearlite",
+          "martensite"
+        ],
+        "remediation": "复习快速冷却与扩散型/无扩散型相变的区别。"
+      },
+      "D": {
+        "type": "误以为淬火会改变钢的碳含量",
+        "missing_points": [
+          "heat_treatment",
+          "carbon_distribution",
+          "phase_transformation"
+        ],
+        "remediation": "复习热处理过程中成分变化与组织变化的区别。"
+      }
+    }
+  }
+]

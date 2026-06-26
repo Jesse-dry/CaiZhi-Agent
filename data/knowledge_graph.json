@@ -1,0 +1,19 @@
+{
+  "nodes": [
+    {"id": "quenching", "label": "淬火", "type": "process"},
+    {"id": "rapid_cooling", "label": "快速冷却", "type": "process_condition"},
+    {"id": "diffusion_suppressed", "label": "扩散受限", "type": "mechanism"},
+    {"id": "martensite", "label": "马氏体", "type": "microstructure"},
+    {"id": "lattice_distortion", "label": "晶格畸变", "type": "mechanism"},
+    {"id": "dislocation_motion_blocked", "label": "位错运动受阻", "type": "mechanism"},
+    {"id": "high_hardness", "label": "硬度提高", "type": "property"}
+  ],
+  "edges": [
+    {"source": "quenching", "target": "rapid_cooling", "relation": "causes"},
+    {"source": "rapid_cooling", "target": "diffusion_suppressed", "relation": "causes"},
+    {"source": "diffusion_suppressed", "target": "martensite", "relation": "promotes"},
+    {"source": "martensite", "target": "lattice_distortion", "relation": "causes"},
+    {"source": "lattice_distortion", "target": "dislocation_motion_blocked", "relation": "causes"},
+    {"source": "dislocation_motion_blocked", "target": "high_hardness", "relation": "increases"}
+  ]
+}
