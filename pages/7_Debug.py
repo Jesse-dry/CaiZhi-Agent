@@ -15,7 +15,7 @@ st.subheader("1. 术语表 terms.csv")
 try:
     terms_df = load_terms()
     st.success(f"terms.csv 读取成功，共 {len(terms_df)} 条术语。")
-    st.dataframe(terms_df, use_container_width=True)
+    st.dataframe(terms_df, width="stretch")
 except Exception as e:
     st.error("terms.csv 读取失败")
     st.exception(e)
