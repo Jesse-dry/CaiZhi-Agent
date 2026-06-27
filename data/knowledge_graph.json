@@ -1,19 +1,158 @@
 {
+  "metadata": {
+    "version": "v0.1",
+    "domain": "AI+Materials Education",
+    "topic": "Steel Heat Treatment",
+    "updated_at": "2026-06-27"
+  },
   "nodes": [
-    {"id": "quenching", "label": "淬火", "type": "process"},
-    {"id": "rapid_cooling", "label": "快速冷却", "type": "process_condition"},
-    {"id": "diffusion_suppressed", "label": "扩散受限", "type": "mechanism"},
-    {"id": "martensite", "label": "马氏体", "type": "microstructure"},
-    {"id": "lattice_distortion", "label": "晶格畸变", "type": "mechanism"},
-    {"id": "dislocation_motion_blocked", "label": "位错运动受阻", "type": "mechanism"},
-    {"id": "high_hardness", "label": "硬度提高", "type": "property"}
+    {
+      "id": "process_quenching",
+      "term_id": "T001",
+      "label_zh": "淬火",
+      "label_en": "Quenching",
+      "type": "process",
+      "description": "将钢加热到奥氏体区后快速冷却的热处理工艺。"
+    },
+    {
+      "id": "condition_rapid_cooling",
+      "term_id": "T004",
+      "label_zh": "快速冷却",
+      "label_en": "Rapid cooling",
+      "type": "condition",
+      "description": "淬火中的关键工艺条件，使碳原子来不及充分扩散。"
+    },
+    {
+      "id": "mechanism_diffusion_suppressed",
+      "term_id": "T005",
+      "label_zh": "碳原子扩散受限",
+      "label_en": "Suppressed carbon diffusion",
+      "type": "mechanism",
+      "description": "快速冷却抑制碳原子长程扩散。"
+    },
+    {
+      "id": "phase_austenite",
+      "term_id": "T002",
+      "label_zh": "奥氏体",
+      "label_en": "Austenite",
+      "type": "phase",
+      "description": "钢在高温下形成的面心立方结构固溶体。"
+    },
+    {
+      "id": "phase_martensite",
+      "term_id": "T003",
+      "label_zh": "马氏体",
+      "label_en": "Martensite",
+      "type": "phase",
+      "description": "由奥氏体快速冷却后形成的硬而脆的组织。"
+    },
+    {
+      "id": "structure_lattice_distortion",
+      "term_id": "T007",
+      "label_zh": "晶格畸变",
+      "label_en": "Lattice distortion",
+      "type": "structure",
+      "description": "马氏体中过饱和碳原子引起晶格畸变。"
+    },
+    {
+      "id": "mechanism_dislocation_blocked",
+      "term_id": "T008",
+      "label_zh": "位错运动受阻",
+      "label_en": "Dislocation motion is hindered",
+      "type": "mechanism",
+      "description": "晶格畸变会阻碍位错运动，使塑性变形更困难。"
+    },
+    {
+      "id": "property_high_hardness",
+      "term_id": "T009",
+      "label_zh": "硬度提高",
+      "label_en": "Increased hardness",
+      "type": "property",
+      "description": "材料抵抗压入和塑性变形的能力增强。"
+    }
   ],
   "edges": [
-    {"source": "quenching", "target": "rapid_cooling", "relation": "causes"},
-    {"source": "rapid_cooling", "target": "diffusion_suppressed", "relation": "causes"},
-    {"source": "diffusion_suppressed", "target": "martensite", "relation": "promotes"},
-    {"source": "martensite", "target": "lattice_distortion", "relation": "causes"},
-    {"source": "lattice_distortion", "target": "dislocation_motion_blocked", "relation": "causes"},
-    {"source": "dislocation_motion_blocked", "target": "high_hardness", "relation": "increases"}
+    {
+      "source": "process_quenching",
+      "target": "condition_rapid_cooling",
+      "relation": "requires",
+      "label_zh": "需要",
+      "explanation": "淬火的核心工艺特征是快速冷却。"
+    },
+    {
+      "source": "condition_rapid_cooling",
+      "target": "mechanism_diffusion_suppressed",
+      "relation": "causes",
+      "label_zh": "导致",
+      "explanation": "冷却速度快会使碳原子来不及充分扩散。"
+    },
+    {
+      "source": "mechanism_diffusion_suppressed",
+      "target": "phase_martensite",
+      "relation": "promotes",
+      "label_zh": "促进形成",
+      "explanation": "扩散受限时，奥氏体更容易转变为马氏体。"
+    },
+    {
+      "source": "phase_austenite",
+      "target": "phase_martensite",
+      "relation": "transforms_to",
+      "label_zh": "转变为",
+      "explanation": "奥氏体在快速冷却下可转变为马氏体。"
+    },
+    {
+      "source": "phase_martensite",
+      "target": "structure_lattice_distortion",
+      "relation": "causes",
+      "label_zh": "导致",
+      "explanation": "马氏体中过饱和碳原子会引起晶格畸变。"
+    },
+    {
+      "source": "structure_lattice_distortion",
+      "target": "mechanism_dislocation_blocked",
+      "relation": "hinders",
+      "label_zh": "阻碍",
+      "explanation": "晶格畸变阻碍位错运动。"
+    },
+    {
+      "source": "mechanism_dislocation_blocked",
+      "target": "property_high_hardness",
+      "relation": "increases",
+      "label_zh": "提高",
+      "explanation": "位错运动受阻使材料更难发生塑性变形，因此硬度提高。"
+    }
+  ],
+  "chains": [
+    {
+      "chain_id": "C001",
+      "title": "淬火提高钢硬度的因果链",
+      "question_patterns": [
+        "淬火为什么提高硬度",
+        "为什么淬火会提高钢的硬度",
+        "Why does quenching increase the hardness of steel?"
+      ],
+      "path": [
+        "process_quenching",
+        "condition_rapid_cooling",
+        "mechanism_diffusion_suppressed",
+        "phase_martensite",
+        "structure_lattice_distortion",
+        "mechanism_dislocation_blocked",
+        "property_high_hardness"
+      ],
+      "summary": "淬火通过快速冷却抑制碳原子扩散，使奥氏体转变为马氏体；马氏体中的过饱和碳造成晶格畸变，阻碍位错运动，从而提高硬度。",
+      "common_misconceptions": [
+        "误以为淬火提高硬度主要是因为晶粒显著细化",
+        "误以为淬火只是降低温度，与组织转变无关",
+        "误以为硬度提高是因为碳含量降低"
+      ],
+      "recommended_next": [
+        "奥氏体",
+        "马氏体",
+        "无扩散相变",
+        "位错运动",
+        "回火"
+      ]
+    }
   ]
 }

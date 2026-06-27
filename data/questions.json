@@ -1,49 +1,52 @@
 [
   {
-    "id": "Q001",
+    "question_id": "Q001",
+    "topic": "quenching_hardness",
     "question": "淬火后钢的硬度提高，主要原因是什么？",
     "options": {
       "A": "晶粒显著细化",
-      "B": "形成马氏体",
+      "B": "形成马氏体并产生晶格畸变",
       "C": "形成粗大珠光体",
       "D": "碳含量降低"
     },
     "answer": "B",
     "knowledge_points": [
-      "quenching",
-      "rapid_cooling",
-      "martensite",
-      "lattice_distortion",
-      "hardness"
+      "process_quenching",
+      "phase_martensite",
+      "structure_lattice_distortion",
+      "mechanism_dislocation_blocked",
+      "property_high_hardness"
     ],
-    "misconceptions": {
+    "diagnosis": {
       "A": {
-        "type": "把淬火强化误认为晶粒细化强化",
+        "misconception": "把淬火强化误认为晶粒细化强化",
         "missing_points": [
-          "martensite",
-          "lattice_distortion",
-          "dislocation_motion"
+          "马氏体转变",
+          "无扩散相变",
+          "晶格畸变"
         ],
-        "remediation": "复习马氏体转变、晶格畸变与硬度提高之间的因果关系。"
+        "feedback": "淬火提高硬度的主要原因不是晶粒显著细化，而是快速冷却形成马氏体，马氏体晶格畸变阻碍位错运动。"
       },
       "C": {
-        "type": "不理解冷却速度对组织转变的影响",
+        "misconception": "混淆珠光体和马氏体",
         "missing_points": [
-          "cooling_rate",
-          "pearlite",
-          "martensite"
+          "珠光体",
+          "马氏体",
+          "冷却速度"
         ],
-        "remediation": "复习快速冷却与扩散型/无扩散型相变的区别。"
+        "feedback": "粗大珠光体通常与较慢冷却有关，而淬火快速冷却更容易形成马氏体。"
       },
       "D": {
-        "type": "误以为淬火会改变钢的碳含量",
+        "misconception": "误以为热处理会显著改变钢的碳含量",
         "missing_points": [
-          "heat_treatment",
-          "carbon_distribution",
-          "phase_transformation"
+          "热处理与成分",
+          "组织转变"
         ],
-        "remediation": "复习热处理过程中成分变化与组织变化的区别。"
+        "feedback": "普通淬火主要改变组织结构，而不是显著降低钢的碳含量。"
       }
-    }
+    },
+    "next_chain_id": "C001",
+    "next_socratic_id": "S001",
+    "difficulty": 1
   }
 ]

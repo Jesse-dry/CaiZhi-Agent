@@ -1,11 +1,11 @@
-english,chinese,definition,related_points
-Quenching,淬火,将奥氏体化后的钢快速冷却以获得高硬度组织的热处理工艺,rapid_cooling;martensite;hardness
-Austenite,奥氏体,γ-Fe 中的固溶体，常作为钢热处理转变的起始组织,FCC;phase_transformation
-Martensite,马氏体,快速冷却形成的过饱和固溶体组织，硬度高但韧性较差,quenching;diffusionless_transformation;hardness
-Rapid cooling,快速冷却,使碳原子来不及充分扩散的冷却过程,quenching;diffusion_suppressed
-Diffusionless transformation,无扩散相变,原子不发生长程扩散的相变方式,martensite;phase_transformation
-Lattice distortion,晶格畸变,晶体结构因碳原子过饱和等原因发生畸变,martensite;hardness
-Dislocation motion,位错运动,金属塑性变形的重要微观机制,hardness;strength
-Hardness,硬度,材料抵抗局部塑性变形的能力,mechanical_property
-Tempering,回火,淬火后重新加热以降低内应力并改善韧性的工艺,toughness;stress_relief
-Toughness,韧性,材料吸收能量并抵抗断裂的能力,mechanical_property
+term_id,zh,en,category,definition_zh,definition_en,aliases_zh,aliases_en,search_keywords_zh,search_keywords_en,related_terms,importance
+T001,淬火,Quenching,工艺,将钢加热到奥氏体区后快速冷却的热处理工艺,A heat treatment process involving rapid cooling from the austenitic region,快速冷却,quench,淬火|快速冷却|热处理,quenching|rapid cooling|heat treatment,奥氏体|马氏体|硬度,high
+T002,奥氏体,Austenite,组织,钢在高温下形成的面心立方固溶体,γ-Fe,淬火|马氏体|扩散,high
+T003,马氏体,Martensite,组织,奥氏体快速冷却后形成的过饱和碳固溶体，通常硬而脆,淬火马氏体,淬火|晶格畸变|硬度,high
+T004,快速冷却,Rapid cooling,工艺条件,冷却速度较快，使碳原子扩散受到抑制,急冷,淬火|扩散|马氏体,high
+T005,扩散,Diffusion,机制,原子在材料中由高浓度区域向低浓度区域迁移的过程,原子扩散,快速冷却|无扩散相变,high
+T006,无扩散相变,Diffusionless transformation,机制,不依赖长程原子扩散而发生的相变,非扩散型相变,马氏体|奥氏体,high
+T007,晶格畸变,Lattice distortion,结构,晶格因碳原子过饱和或缺陷而发生变形,晶格变形,马氏体|位错运动|硬度,high
+T008,位错运动,Dislocation motion,机制,晶体中位错在外力作用下移动，是塑性变形的重要机制,位错滑移,晶格畸变|硬度,medium
+T009,硬度,Hardness,性能,材料抵抗局部塑性变形、压入或划伤的能力,抗压入能力,马氏体|位错运动,high
+T010,回火,Tempering,工艺,淬火后将钢重新加热到较低温度以降低脆性并改善韧性的热处理工艺,低温回火,淬火|韧性|马氏体,medium
