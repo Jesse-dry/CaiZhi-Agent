@@ -165,10 +165,12 @@ CaiZhi-Agent/
 │   ├── 3_Socratic guidance.py     # 苏格拉底引导
 │   ├── 4_Feynman's evaluation.py  # 费曼评价
 │   ├── 5_knowledge graph.py       # 知识图谱
-│   └── 6_Learning path recommendation.py  # 学习路径推荐
+│   ├── 6_Learning path recommendation.py  # 学习路径推荐
+│   └── 7_Debug.py                 # 知识库调试（术语表 + 图谱数据检查）
 │
 ├── services/                      # 业务服务层 —— 编排流程，串联 Agent 与知识检索
-│   ├── qa_service.py              # 答疑服务
+│   ├── __init__.py
+│   ├── qa_service.py              # 答疑服务（已实现 mock 版本）
 │   ├── diagnosis_service.py       # 错题诊断服务
 │   ├── socratic_service.py        # 苏格拉底服务
 │   ├── feynman_service.py         # 费曼评价服务
@@ -183,23 +185,38 @@ CaiZhi-Agent/
 │   └── graph_reasoning_agent.py   # 图谱推理 Agent
 │
 ├── knowledge/                     # 知识增强层 —— RAG 检索、图谱、术语、Prompt
-│   ├── rag_retriever.py           # 教材 RAG 检索器
-│   ├── knowledge_graph.py         # 材料知识图谱查询
-│   ├── terminology.py             # 中英文术语对齐
-│   ├── misconception_mapper.py    # 错题-知识点映射
-│   └── prompt_builder.py          # Prompt 模板构建
+│   ├── __init__.py
+│   ├── rag_retriever.py           # 统一 RAG 入口
+│   ├── knowledge_graph.py         # 材料知识图谱查询（已实现）
+│   ├── terminology.py             # 中英文术语查询与对齐（已实现）
+│   ├── misconception_mapper.py    # 错题-误区-知识点映射
+│   ├── prompt_builder.py          # 双语 RAG + 图谱 Prompt 组装
+│   ├── retrievers/                # 双语向量检索
+│   │   ├── __init__.py
+│   │   ├── zh_retriever.py        # 中文教材向量检索
+│   │   ├── en_retriever.py        # 英文教材向量检索
+│   │   ├── bilingual_retriever.py # 双语检索调度
+│   │   └── reranker.py            # 中英文结果重排
+│   └── indexing/                  # 索引构建
+│       ├── __init__.py
+│       ├── pdf_parser.py          # PDF 解析
+│       ├── chunker.py             # 文本切块
+│       └── build_vector_store.py  # 向量库构建
 │
 ├── data/                          # 静态数据
-│   ├── textbooks/                 # 英文教材 PDF
-│   ├── terms.csv                  # 术语表
-│   ├── knowledge_graph.json       # 知识图谱数据
+│   ├── textbooks/                 # 教材 PDF
+│   │   ├── en/                    #   英文教材 PDF
+│   │   └── zh/                    #   中文教材 PDF
+│   ├── terms.csv                  # 术语表（中英双语，10 条）
+│   ├── knowledge_graph.json       # 知识图谱（8 节点 / 7 边 / 1 因果链）
 │   ├── questions.json             # 题库
 │   ├── socratic.json              # 苏格拉底引导问题库
 │   ├── feynman.json               # 费曼评价标准
 │   └── student_profile.json       # 学生画像（初始模板）
 │
 ├── vector_store/                  # 向量数据库
-│   └── chroma_db/                 # Chroma 持久化目录
+│   ├── ch_chroma_db/              # 中文教材向量索引
+│   └── en_chroma_db/              # 英文教材向量索引
 │
 ├── database/                      # 关系数据库
 │   ├── db.py                      # 数据库连接与操作
@@ -222,7 +239,7 @@ CaiZhi-Agent/
 
 ## 快速开始
 
-> ⚠️ 项目处于早期开发阶段，以下为规划中的启动流程。
+> ⚠️ 项目处于 V1 最小可行性测试阶段，聚焦"铁碳相图与钢的热处理"知识单元。
 
 ```bash
 # 1. 克隆仓库
@@ -235,20 +252,30 @@ source venv/bin/activate   # Linux/Mac
 # venv\Scripts\activate    # Windows
 pip install -r requirements.txt
 
-# 3. 配置环境变量（API Key 等）
-cp .env.example .env
-# 编辑 .env 填入你的 LLM API Key
+# 3. 配置环境变量（LLM API Key）
+# 创建 .env 文件并填入你的 API Key
 
-# 4. 准备数据
-# 将英文教材 PDF 放入 data/textbooks/
-# 确保知识图谱 data/knowledge_graph.json 和术语表 data/terms.csv 就位
-
-# 5. 构建向量索引
-python scripts/build_index.py
-
-# 6. 启动应用
+# 4. 启动应用
 streamlit run app.py
 ```
+
+### V1 当前状态
+
+| 模块 | 状态 |
+|---|---|
+| 首页 `app.py` | ✅ 正常 |
+| 智能答疑 (页 1) | 🔧 框架已有，待接入 LLM |
+| 错题诊断 (页 2) | 🔧 框架已有 |
+| 苏格拉底引导 (页 3) | 🔧 框架已有 |
+| 费曼评价 (页 4) | 🔧 框架已有 |
+| 知识图谱 (页 5) | 🔧 框架已有 |
+| 学习路径推荐 (页 6) | 🔧 框架已有 |
+| 调试页面 (页 7) | ✅ 术语表 + 知识图谱数据验证 |
+| 知识图谱后端 `knowledge_graph.py` | ✅ 已实现 |
+| 术语检索 `terminology.py` | ✅ 已实现 |
+| 答疑服务 `qa_service.py` | ✅ Mock 版本已实现 |
+| 向量检索 | 🔧 目录已建，待索引构建 |
+| PDF 解析 / 切块 | 🔧 目录已建，待实现 |
 
 ---
 
