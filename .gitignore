@@ -3,6 +3,7 @@
 
 # 本地文件 - 不推送
 docs/新手上手指南.md
+CLAUDE.md
 
 # Python
 __pycache__/

@@ -1,5 +1,6 @@
 # app.py
 import streamlit as st
+from utils.state import init_session_state
 
 # 1. 页面基础配置 (必须是 Streamlit 命令的第一句)
 st.set_page_config(
@@ -8,7 +9,10 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. 首页内容展示
+# 2. 初始化全局状态
+init_session_state()
+
+# 3. 首页内容展示
 st.title("🧊 AI 材料学智能导师系统")
 st.markdown("""
 欢迎来到材料学智能导师系统！本系统致力于帮助你打通 **“工艺—组织—性能”** 的核心因果链。
@@ -23,7 +27,3 @@ st.markdown("""
 """)
 
 st.info("当前版本为 V1 最小可行性测试版，主要聚焦『铁碳相图与钢的热处理』知识单元。")
-
-# 3. 初始化全局状态 (模拟用户登录或学习状态)
-if "user_id" not in st.session_state:
-    st.session_state.user_id = "student_test_01"

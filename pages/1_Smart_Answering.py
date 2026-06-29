@@ -1,14 +1,13 @@
-# pages/1_Smart Answering.py
+# pages/1_Smart_Answering.py
 import streamlit as st
 import time
+from utils.state import init_session_state, go_to
+
+init_session_state()
 
 st.title("💬 英文教材 RAG 智能答疑")
 
 st.caption("💡 尝试输入：为什么淬火会提高钢的硬度？")
-
-# 初始化聊天历史记录
-if "qa_messages" not in st.session_state:
-    st.session_state.qa_messages = []
 
 # 渲染历史聊天记录
 for message in st.session_state.qa_messages:
@@ -56,3 +55,38 @@ if prompt := st.chat_input("请输入材料学专业问题..."):
     
     # 3. 保存助手回复
     st.session_state.qa_messages.append({"role": "assistant", "content": mock_response})
+
+# 答疑结果出来后的导航按钮
+if st.session_state.qa_messages:
+    st.divider()
+    st.markdown("### 下一步")
+
+    # 取最近一条助手回复构造成 result，供后续页面读取
+    last_assistant = next(
+        (m for m in reversed(st.session_state.qa_messages) if m["role"] == "assistant"),
+        None
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("去做一道自测题", type="primary"):
+            st.session_state["last_qa_result"] = {
+                "question": last_assistant["content"] if last_assistant else "",
+                "chain_id": "C001",
+                "terms": ["Quenching", "Martensite", "Lattice distortion", "Dislocation movement"]
+            }
+            st.session_state["current_question_id"] = "Q001"
+            st.session_state["current_chain_id"] = "C001"
+            st.session_state["demo_stage"] = "diagnosis"
+            go_to("diagnosis")
+
+    with col2:
+        if st.button("查看相关知识图谱"):
+            st.session_state["last_qa_result"] = {
+                "question": last_assistant["content"] if last_assistant else "",
+                "chain_id": "C001",
+                "terms": ["Quenching", "Martensite", "Lattice distortion", "Dislocation movement"]
+            }
+            st.session_state["current_chain_id"] = "C001"
+            go_to("graph")

@@ -1,6 +1,9 @@
-# pages/4_Feynman's evaluation.py
+# pages/4_Feynman_Evaluation.py
 import streamlit as st
 import time
+from utils.state import init_session_state, go_to
+
+init_session_state()
 
 st.title("🗣️ 费曼学习法评价")
 
@@ -32,8 +35,23 @@ if st.button("提交评价"):
             * 应用迁移能力：15 / 15
             * 表达清晰度：10 / 10
             """)
+
+            # 保存评价结果供后续页面（如学习路径推荐）读取
+            st.session_state["last_feynman_result"] = {
+                "score": 82,
+                "covered_points": ["快速冷却", "马氏体形成", "硬度提高"],
+                "missing_points": ["碳原子扩散受限", "晶格畸变", "位错运动受阻"],
+                "suggestion": "请补充说明马氏体为什么会阻碍位错运动，以及这如何导致硬度提高。"
+            }
     else:
         st.warning("请先输入你的解释！")
+
+# 评价结果出来后显示学习路径推荐按钮
+if st.session_state.get("last_feynman_result"):
+    st.divider()
+    if st.button("生成个性化学习路径", type="primary"):
+        st.session_state["demo_stage"] = "learning_path"
+        go_to("learning_path")
 
 # TODO: 替换为 services/feynman_service.py 的真实调用
 # from services.feynman_service import evaluate

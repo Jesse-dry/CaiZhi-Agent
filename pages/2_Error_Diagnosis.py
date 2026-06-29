@@ -1,5 +1,8 @@
 import streamlit as st
 from services.diagnosis_service import get_question_for_page, submit_answer
+from utils.state import init_session_state, go_to
+
+init_session_state()
 
 
 st.set_page_config(
@@ -34,6 +37,8 @@ selected_option = st.radio(
 if st.button("提交答案", type="primary"):
     result = submit_answer(question["question_id"], selected_option)
     st.session_state["last_diagnosis"] = result
+    st.session_state["current_chain_id"] = result.get("next_chain_id", "C001")
+    st.session_state["current_socratic_id"] = result.get("next_socratic_id", "S001")
 
 
 result = st.session_state.get("last_diagnosis")
@@ -84,19 +89,23 @@ if result:
     st.markdown("### 标准解释")
     st.write(result["answer_explanation"])
 
-    st.markdown("### 后续学习入口")
+    st.markdown("### 下一步")
 
-    col3, col4 = st.columns(2)
+    col3, col4, col5 = st.columns(3)
 
     with col3:
-        if st.button("进入苏格拉底引导"):
-            st.session_state["current_socratic_id"] = result.get("next_socratic_id", "S001")
-            st.info("已记录 next_socratic_id，下一步可接入苏格拉底页面。")
-
-            # 如果你已经有 pages/3_Socratic_Guidance.py，可以打开下面这段
-            # st.switch_page("pages/3_Socratic_Guidance.py")
+        if st.button("进入苏格拉底引导", type="primary"):
+            st.session_state["socratic_step_index"] = 0
+            st.session_state["socratic_history"] = []
+            st.session_state["demo_stage"] = "socratic"
+            go_to("socratic")
 
     with col4:
         if st.button("查看相关知识链"):
-            st.session_state["current_chain_id"] = result.get("next_chain_id", "C001")
-            st.info("已记录 next_chain_id，下一步可接入知识图谱页面。")
+            st.session_state["demo_stage"] = "graph"
+            go_to("graph")
+
+    with col5:
+        if st.button("直接生成学习路径"):
+            st.session_state["demo_stage"] = "learning_path"
+            go_to("learning_path")
