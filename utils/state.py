@@ -11,6 +11,7 @@ PAGES = {
     "graph": "pages/5_Knowledge_Graph.py",
     "learning_path": "pages/6_Learning_Path_Recommendation.py",
     "debug": "pages/7_Debug.py",
+    "rag_debug": "pages/8_RAG_Debug.py",
 }
 
 

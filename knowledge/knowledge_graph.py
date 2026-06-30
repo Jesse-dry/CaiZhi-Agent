@@ -26,6 +26,35 @@ def get_chain_by_id(chain_id: str):
     return None
 
 
+def match_chain(query: str):
+    """
+    根据问题文本匹配最相关的因果链。
+    V1 简化版：只有一个链 C001，做关键词匹配。
+    后续可换成语义匹配。
+    """
+    graph = load_knowledge_graph()
+
+    # V1: 关键词匹配
+    keywords_map = {
+        "C001": ["淬火", "硬度", "马氏体", "奥氏体", "quenching", "hardness", "martensite"]
+    }
+
+    query_lower = query.lower()
+    best_chain_id = None
+
+    for chain_id, keywords in keywords_map.items():
+        if any(kw.lower() in query_lower for kw in keywords):
+            best_chain_id = chain_id
+            break
+
+    if best_chain_id:
+        return get_chain_by_id(best_chain_id)
+
+    # 兜底：返回第一个链
+    chains = graph.get("chains", [])
+    return chains[0] if chains else None
+
+
 def format_chain_path(chain_id: str):
     """
     将因果链的路径格式化为可读字符串。

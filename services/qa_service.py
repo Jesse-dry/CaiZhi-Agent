@@ -1,35 +1,27 @@
-from knowledge.terminology import search_terms
-from knowledge.knowledge_graph import get_chain_by_id, format_chain_path
+from knowledge.rag_retriever import retrieve
+from knowledge.knowledge_graph import match_chain
+from knowledge.prompt_builder import build_rag_qa_prompt
 
 
 def answer_question(question: str):
-    """
-    最小 mock 版答疑服务。
-    暂时不接大模型，只返回固定结构。
-    """
+    rag_result = retrieve(question, top_k=3)
+    graph_chain = match_chain(question)
 
-    # 目前先固定匹配 C001，后面再根据问题自动匹配 chain_id
-    chain_id = "C001"
-    chain = get_chain_by_id(chain_id)
-    graph_path = format_chain_path(chain_id)
+    prompt = build_rag_qa_prompt(
+        query=question,
+        rag_result=rag_result,
+        graph_chain=graph_chain
+    )
 
-    # 搜索相关术语
-    related_terms = search_terms("淬火")
-
-    terms_list = []
-    for _, row in related_terms.iterrows():
-        terms_list.append({
-            "zh": row.get("zh", ""),
-            "en": row.get("en", ""),
-            "definition_zh": row.get("definition_zh", "")
-        })
+    # 第一阶段可以先不接大模型，直接把 prompt 和检索结果展示出来
+    # 后面再 response = call_llm(prompt)
 
     return {
         "question": question,
-        "brief_answer": "淬火通过快速冷却抑制碳原子扩散，使奥氏体转变为马氏体；马氏体产生晶格畸变，阻碍位错运动，因此提高钢的硬度。",
-        "principle": chain.get("summary", "") if chain else "",
-        "graph_path": graph_path,
-        "terms": terms_list,
-        "common_misconceptions": chain.get("common_misconceptions", []) if chain else [],
-        "recommended_next": chain.get("recommended_next", []) if chain else []
+        "rag_result": rag_result,
+        "graph_chain": graph_chain,
+        "prompt": prompt,
+
+        # 临时 mock 回答，等接 LLM 后替换
+        "answer": "这里将由大模型根据中文教材、英文教材、术语表和知识图谱生成回答。"
     }
