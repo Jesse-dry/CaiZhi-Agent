@@ -1,4 +1,4 @@
-from knowledge.rag_retriever import retrieve
+from services.rag_service import retrieve
 from knowledge.knowledge_graph import match_chain
 from knowledge.prompt_builder import build_rag_qa_prompt
 

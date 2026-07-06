@@ -1,5 +1,11 @@
-from knowledge.retrievers.bilingual_retriever import bilingual_retrieve
+"""
+知识检索入口（委托到 services/rag_service）。
+
+保持向后兼容，所有旧代码无需改动。
+"""
+
+from services.rag_service import retrieve
 
 
-def retrieve(query: str, top_k: int = 3):
-    return bilingual_retrieve(query=query, top_k=top_k)
+# 如需直接使用完整的 search_textbooks：
+# from services.rag_service import search_textbooks

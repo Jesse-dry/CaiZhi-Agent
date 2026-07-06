@@ -24,8 +24,12 @@ pandas>=2.2.0
 numpy>=2.0.0
 
 # 文档解析
-pymupdf>=1.25.0          # PDF 解析
+marker-pdf>=1.10.0        # PDF→Markdown（视觉AI解析，替代pymupdf）
+langchain-text-splitters>=0.3.0  # MarkdownHeaderTextSplitter 语义分块
 python-docx>=1.1.0        # Word 文档解析
+
+# Embedding
+sentence-transformers>=3.0.0  # BGE-m3 多语言 embedding
 
 # 工具
 python-dotenv>=1.0.0      # .env 加载
