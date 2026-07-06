@@ -31,17 +31,19 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                        页面展示层 (pages/)                        │
 │   Streamlit 多页面应用：答疑 / 错题诊断 / 苏格拉底引导 /           │
-│   费曼评价 / 知识图谱 / 学习路径推荐                               │
+│   费曼评价 / 知识图谱 / 学习路径推荐 / RAG Debug                   │
 ├─────────────────────────────────────────────────────────────────┤
 │                        业务服务层 (services/)                      │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│  │ 答疑服务  │ │ 诊断服务  │ │ 苏格拉底  │ │ 费曼评价  │ │ 推荐服务  │ │
-│  │ qa       │ │ diagnosis│ │ socratic │ │ feynman  │ │ recommend│ │
+│  │ rag      │ │ 答疑服务  │ │ 诊断服务  │ │ 苏格拉底  │ │ 费曼评价  │ │
+│  │ service  │ │ qa       │ │ diagnosis│ │ socratic │ │ feynman  │ │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
-│                         ┌──────────┐                              │
-│                         │ 学生画像  │                              │
-│                         │ profile   │                              │
-│                         └──────────┘                              │
+├─────────────────────────────────────────────────────────────────┤
+│                     RAG 管线 (rag/)                               │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+│  │ PDF→MD   │ │ 语义分块  │ │ BGE-m3   │ │ 双语检索  │ │ 图表      │ │
+│  │ Marker   │ │ H1/H2/H3 │ │ 向量化    │ │ +术语扩展 │ │ Caption   │ │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
 ├─────────────────────────────────────────────────────────────────┤
 │                        AI 推理层 (agents/)                        │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
@@ -51,104 +53,18 @@
 ├─────────────────────────────────────────────────────────────────┤
 │                       知识增强层 (knowledge/)                      │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│  │ 教材 RAG │ │ 知识图谱  │ │ 术语对齐  │ │ 迷思概念  │ │ Prompt   │ │
-│  │ retriever│ │ graph    │ │ terminology│ │ mapper   │ │ builder  │ │
+│  │ RAG      │ │ 知识图谱  │ │ 术语对齐  │ │ 术语扩展  │ │ Prompt   │ │
+│  │ retriever│ │ graph    │ │ terminology│ │ expander │ │ builder  │ │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
 ├─────────────────────────────────────────────────────────────────┤
 │                      数据 & 存储层                                 │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│  │ data/    │ │ database/│ │ vector_  │ │ configs/ │ │ docs/    │ │
-│  │ 教材/题库│ │ 学生记录  │ │ store/   │ │ 模型配置  │ │ 文档     │ │
-│  │ 知识图谱 │ │          │ │ ChromaDB │ │ RAG配置  │ │          │ │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐             │
+│  │ data/    │ │ database/│ │ vector_  │ │ configs/ │             │
+│  │ 教材/题库│ │ 学生记录  │ │ store/   │ │ 模型配置  │             │
+│  │ 知识图谱 │ │          │ │ ChromaDB │ │          │             │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘             │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-### 分层职责
-
-| 层 | 目录 | 职责 |
-|---|---|---|
-| **页面展示层** | `pages/` + `app.py` | Streamlit 页面，纯 UI 展示与用户交互，不包含业务逻辑 |
-| **业务服务层** | `services/` | 编排业务流程，串联 Agent 调用与知识检索，管理学生画像 |
-| **AI 推理层** | `agents/` | 封装 LLM 提示词与推理逻辑，每个 Agent 负责一种教学模式 |
-| **知识增强层** | `knowledge/` | RAG 检索、知识图谱查询、术语对齐、迷思概念映射、Prompt 构建 |
-| **数据 & 存储层** | `data/` `database/` `vector_store/` `configs/` | 静态数据、关系数据库、向量数据库、配置文件 |
-
-**设计原则**：页面只负责展示，services 负责业务流程，agents 负责 AI 推理，knowledge 负责检索和图谱，data/database 负责数据。
-
----
-
-## 核心工作流
-
-```
-学生输入（问题 / 错题 / 自己的讲解）
-        │
-        ▼
-┌──────────────────────┐
-│  页面层：路由到对应   │  ← Streamlit 多页面自动路由
-│  功能页面             │
-└──────────────────────┘
-        │
-        ▼
-┌──────────────────────┐
-│  服务层：编排业务     │  ← 调用 Agent + 知识检索 + 学生画像
-│  流程                 │
-└──────────────────────┘
-        │
-        ▼
-┌──────────────────────┐
-│  Agent 层：AI 推理   │  ← LLM 生成教学反馈 / 反问 / 评价
-└──────────────────────┘
-        │
-        ▼
-┌──────────────────────┐
-│  知识层：RAG + 图谱  │  ← 教材检索 + 术语对齐 + 迷思概念匹配
-└──────────────────────┘
-        │
-        ▼
-┌──────────────────────┐
-│  更新学生画像         │  ← 知识点掌握度、错题记录写入 database/
-└──────────────────────┘
-        │
-        ▼
-┌──────────────────────┐
-│  推荐下一步学习路径    │  ← 个性化：薄弱点优先 / 进阶挑战 / 关联拓展
-└──────────────────────┘
-```
-
----
-
-## 六大功能详解
-
-### 1. 智能答疑（Smart Answering）
-- 基于英文教材 RAG，提供**有引用来源**的精准回答
-- 支持中英文混合提问，自动术语对齐
-- 当检测到学生概念模糊时，自动衔接苏格拉底引导
-
-### 2. 错题诊断（Error Diagnosis）
-- 不仅仅标记对错，而是**追溯错误根因**
-- 结合迷思概念库，将错题映射到具体知识点缺陷
-- 输出：错因分析 → 关联知识点 → 推荐补救练习 → 同类变式题
-
-### 3. 苏格拉底式引导（Socratic Guidance）
-- 不直接给答案，通过**层层反问**引导学生推理
-- 典型案例："为什么淬火能提高钢的硬度？"→ "硬度与微观组织结构有什么关系？"→ "马氏体是如何形成的？"
-- 适配材料科学中大量**因果链**知识（工艺 → 组织 → 性能）
-
-### 4. 费曼学习法评价（Feynman's Evaluation）
-- 让学生**用自己的话讲解**一个概念或原理
-- AI 从**完整性、准确性、逻辑链、通俗度**四个维度评价
-- 识别"表面理解"（只会复述术语但无法解释本质）并给出反馈
-
-### 5. 知识图谱（Knowledge Graph）
-- 构建材料学科知识点关联网络，可视化展示知识结构
-- 支持知识点间关系查询、前驱后继依赖分析
-- 辅助学生发现知识盲区，建立系统化认知
-
-### 6. 学习路径推荐（Learning Path Recommendation）
-- 基于学生画像（知识点掌握度、错题分布、学习风格）
-- 动态推荐：薄弱点强化 → 进阶挑战 → 关联知识拓展
-- 实现真正个性化的学习导航
 
 ---
 
@@ -160,78 +76,74 @@ CaiZhi-Agent/
 ├── app.py                         # Streamlit 主入口
 │
 ├── pages/                         # 页面展示层 —— 纯 UI，不含业务逻辑
-│   ├── 1_Smart Answering.py       # 智能答疑
-│   ├── 2_Error Diagnosis.py       # 错题诊断
-│   ├── 3_Socratic guidance.py     # 苏格拉底引导
-│   ├── 4_Feynman's evaluation.py  # 费曼评价
-│   ├── 5_knowledge graph.py       # 知识图谱
-│   ├── 6_Learning path recommendation.py  # 学习路径推荐
-│   └── 7_Debug.py                 # 知识库调试（术语表 + 图谱数据检查）
+│   ├── 1_Smart_Answering.py       # 智能答疑
+│   ├── 2_Error_Diagnosis.py       # 错题诊断
+│   ├── 3_Socratic_Guidance.py     # 苏格拉底引导
+│   ├── 4_Feynman_Evaluation.py    # 费曼评价
+│   ├── 5_Knowledge_Graph.py       # 知识图谱（stub）
+│   ├── 6_Learning_Path_Recommendation.py  # 学习路径推荐（stub）
+│   ├── 7_Debug.py                 # 知识库调试
+│   └── 8_RAG_Debug.py             # RAG 检索调试（✅ 已实现）
 │
-├── services/                      # 业务服务层 —— 编排流程，串联 Agent 与知识检索
-│   ├── __init__.py
-│   ├── qa_service.py              # 答疑服务（已实现 mock 版本）
-│   ├── diagnosis_service.py       # 错题诊断服务
-│   ├── socratic_service.py        # 苏格拉底服务
-│   ├── feynman_service.py         # 费曼评价服务
-│   ├── profile_service.py         # 学生画像服务
-│   └── recommendation_service.py  # 学习路径推荐服务
+├── services/                      # 业务服务层
+│   ├── rag_service.py             # ✅ RAG 检索服务封装
+│   ├── qa_service.py              # ✅ 答疑服务（LLM待接入）
+│   ├── diagnosis_service.py       # ✅ 错题诊断服务
+│   ├── socratic_service.py        # stub
+│   ├── feynman_service.py         # stub
+│   ├── profile_service.py         # stub
+│   └── recommendation_service.py  # stub
 │
-├── agents/                        # AI 推理层 —— LLM 提示词与推理逻辑
-│   ├── qa_agent.py                # 答疑 Agent
-│   ├── mistake_diagnosis_agent.py # 错题诊断 Agent
-│   ├── socratic_agent.py          # 苏格拉底 Agent
-│   ├── feynman_agent.py           # 费曼 Agent
-│   └── graph_reasoning_agent.py   # 图谱推理 Agent
+├── rag/                           # ✅ RAG 管线（PDF→Markdown→Chunk→向量库→检索）
+│   ├── pdf_parser.py              #   PDF→Markdown（Marker 视觉AI解析）
+│   ├── chunker.py                 #   语义分块（MarkdownHeaderTextSplitter）
+│   ├── prepare_chunks.py          #   全流程编排（--pdf-only / --chunk-only）
+│   ├── build_vector_store.py      #   ChromaDB + BGE-m3 向量化
+│   ├── bilingual_retriever.py     #   双语检索 + 术语扩展
+│   ├── check_chunks.py            #   Chunk 质量统计
+│   └── image_captioner.py         #   图表 Caption（Phase 2，默认关闭）
 │
-├── knowledge/                     # 知识增强层 —— RAG 检索、图谱、术语、Prompt
-│   ├── __init__.py
-│   ├── rag_retriever.py           # 统一 RAG 入口
-│   ├── knowledge_graph.py         # 材料知识图谱查询（已实现）
-│   ├── terminology.py             # 中英文术语查询与对齐（已实现）
-│   ├── misconception_mapper.py    # 错题-误区-知识点映射
-│   ├── prompt_builder.py          # 双语 RAG + 图谱 Prompt 组装
-│   ├── retrievers/                # 双语向量检索
-│   │   ├── __init__.py
-│   │   ├── zh_retriever.py        # 中文教材向量检索
-│   │   ├── en_retriever.py        # 英文教材向量检索
-│   │   ├── bilingual_retriever.py # 双语检索调度
-│   │   └── reranker.py            # 中英文结果重排
-│   └── indexing/                  # 索引构建
-│       ├── __init__.py
-│       ├── pdf_parser.py          # PDF 解析
-│       ├── chunker.py             # 文本切块
-│       └── build_vector_store.py  # 向量库构建
+├── agents/                        # AI 推理层 —— 全部为 stub
+│   ├── qa_agent.py
+│   ├── mistake_diagnosis_agent.py
+│   ├── socratic_agent.py
+│   ├── feynman_agent.py
+│   └── graph_reasoning_agent.py
 │
-├── data/                          # 静态数据
-│   ├── textbooks/                 # 教材 PDF
-│   │   ├── en/                    #   英文教材 PDF
-│   │   └── zh/                    #   中文教材 PDF
-│   ├── terms.csv                  # 术语表（中英双语，10 条）
-│   ├── knowledge_graph.json       # 知识图谱（8 节点 / 7 边 / 1 因果链）
-│   ├── questions.json             # 题库
-│   ├── socratic.json              # 苏格拉底引导问题库
-│   ├── feynman.json               # 费曼评价标准
-│   └── student_profile.json       # 学生画像（初始模板）
+├── knowledge/                     # 知识增强层
+│   ├── rag_retriever.py           #   检索入口（委托到 services/rag_service）
+│   ├── knowledge_graph.py         # ✅ 知识图谱查询
+│   ├── terminology.py             # ✅ 术语查询
+│   ├── term_expander.py           # ✅ 查询术语扩展（中↔英）
+│   ├── misconception_mapper.py    # ✅ 错题-误区映射
+│   ├── prompt_builder.py          # ✅ RAG Prompt 组装
+│   ├── retrievers/                # ⚠️ 旧版检索器（已被 rag/ 替代，保留参考）
+│   └── indexing/                  # ⚠️ 旧版索引构建（已被 rag/ 替代，保留参考）
 │
-├── vector_store/                  # 向量数据库
-│   ├── ch_chroma_db/              # 中文教材向量索引
-│   └── en_chroma_db/              # 英文教材向量索引
+├── data/                          # 数据
+│   ├── textbooks/                 #   教材 PDF（不入库）
+│   │   ├── zh/                    #     中文教材
+│   │   └── en/                    #     英文教材
+│   ├── processed/                 #   RAG 产出（不入库）
+│   │   ├── markdown/              #     Marker 输出的 Markdown
+│   │   ├── images/                #     提取的图表
+│   │   └── chunks/                #     语义分块 JSONL
+│   ├── terms.csv                  #   术语表
+│   ├── knowledge_graph.json       #   知识图谱
+│   ├── questions.json             #   题库
+│   ├── socratic.json              #   苏格拉底引导
+│   └── feynman.json               #   费曼评价标准
 │
-├── database/                      # 关系数据库
-│   ├── db.py                      # 数据库连接与操作
-│   └── models.py                  # 数据模型定义
+├── vector_store/                  # ChromaDB 向量库（不入库，本地生成）
 │
+├── database/                      # 关系数据库（stub）
 ├── configs/                       # 配置文件
-│   ├── model_config.yaml          # LLM 模型配置
-│   └── rag_config.yaml            # RAG 检索参数配置
-│
 ├── docs/                          # 文档
-│   └── 新手上手指南.md
 │
-├── requirements.txt               # Python 依赖
-├── .env                           # 环境变量（API Key 等，不提交）
+├── requirements.txt
+├── .env                           # API Key（不入库）
 ├── .gitignore
+├── CLAUDE.md                      # Claude Code 项目指南
 └── README.md
 ```
 
@@ -240,42 +152,102 @@ CaiZhi-Agent/
 ## 快速开始
 
 > ⚠️ 项目处于 V1 最小可行性测试阶段，聚焦"铁碳相图与钢的热处理"知识单元。
+> RAG 管线代码已就绪，**需要在 8GB+ RAM 的服务器上执行 PDF 解析**（Marker 模型约 3.5GB）。
+
+### 1. 安装依赖
 
 ```bash
-# 1. 克隆仓库
 git clone https://github.com/Jesse-dry/CaiZhi-Agent.git
 cd CaiZhi-Agent
 
-# 2. 创建虚拟环境并安装依赖
 python -m venv venv
 source venv/bin/activate   # Linux/Mac
 # venv\Scripts\activate    # Windows
+
 pip install -r requirements.txt
+```
 
-# 3. 配置环境变量（LLM API Key）
-# 创建 .env 文件并填入你的 API Key
+### 2. 配置 API Key
 
-# 4. 启动应用
+创建 `.env` 文件：
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### 3. 准备教材 PDF
+
+将教材 PDF 放入对应目录：
+- `data/textbooks/zh/` — 中文教材
+- `data/textbooks/en/` — 英文教材
+
+### 4. 运行 RAG 管线（⚠️ 需 8GB+ RAM，建议在服务器执行）
+
+```bash
+# Step 1: PDF → Markdown（先人工检查 Markdown 质量）
+python -m rag.prepare_chunks --pdf-only
+
+# 检查 data/processed/markdown/ 下的 Markdown：
+#   ① 章节标题是否识别为 #/##/###
+#   ② 正文顺序是否正常
+#   ③ 表格是否有严重错乱
+#   ④ 公式是否至少可读
+#   ⑤ 图是否被保存
+
+# Step 2: Markdown → 语义 Chunks
+python -m rag.prepare_chunks --chunk-only
+
+# Step 3: Chunk 质量检查
+python -m rag.check_chunks
+# 健康指标：空chunk=0，平均长度 500-1500 字符，最大<6000，metadata缺失=0
+
+# Step 4: 构建向量库
+python -m rag.build_vector_store
+```
+
+### 5. 启动应用
+
+```bash
 streamlit run app.py
 ```
 
-### V1 当前状态
+进入 **RAG Debug** 页（第 8 页）验证检索效果。
 
-| 模块 | 状态 |
-|---|---|
-| 首页 `app.py` | ✅ 正常 |
-| 智能答疑 (页 1) | 🔧 框架已有，待接入 LLM |
-| 错题诊断 (页 2) | 🔧 框架已有 |
-| 苏格拉底引导 (页 3) | 🔧 框架已有 |
-| 费曼评价 (页 4) | 🔧 框架已有 |
-| 知识图谱 (页 5) | 🔧 框架已有 |
-| 学习路径推荐 (页 6) | 🔧 框架已有 |
-| 调试页面 (页 7) | ✅ 术语表 + 知识图谱数据验证 |
-| 知识图谱后端 `knowledge_graph.py` | ✅ 已实现 |
-| 术语检索 `terminology.py` | ✅ 已实现 |
-| 答疑服务 `qa_service.py` | ✅ Mock 版本已实现 |
-| 向量检索 | 🔧 目录已建，待索引构建 |
-| PDF 解析 / 切块 | 🔧 目录已建，待实现 |
+---
+
+## V1 实现状态
+
+| 模块 | 状态 | 说明 |
+|---|---|---|
+| RAG 管线 `rag/` | ✅ 代码就绪 | Marker + 语义分块 + BGE-m3 + 双语检索 |
+| RAG 管线执行 | ⏳ 待服务器运行 | 本地内存不足，需 8GB+ RAM |
+| RAG Debug (页 8) | ✅ 已实现 | 术语展示 + 章节信息 + 双语结果 + 图表描述 |
+| RAG 检索服务 | ✅ 已实现 | 术语扩展 → 双语检索 → 合并排序 |
+| 智能答疑 (页 1) | 🔧 框架已有 | Prompt 组装就绪，LLM 调用待接入 |
+| 错题诊断 (页 2) | ✅ 已实现 | 完整错题诊断 UI + 后端 |
+| 苏格拉底引导 (页 3) | 🔧 框架已有 | |
+| 费曼评价 (页 4) | 🔧 框架已有 | |
+| 知识图谱 (页 5) | 🔧 stub | |
+| 学习路径推荐 (页 6) | 🔧 stub | |
+| 调试页面 (页 7) | ✅ 已实现 | 术语表 + 知识图谱数据验证 |
+| 知识图谱 `knowledge_graph.py` | ✅ 已实现 | 8 节点 / 7 边 / 1 因果链 |
+| 术语检索 `terminology.py` | ✅ 已实现 | 双语术语搜索 |
+| 术语扩展 `term_expander.py` | ✅ 已实现 | 查询中英双向术语扩展 |
+| Prompt 构建 | ✅ 已实现 | 双语教材 + 图表 + 术语 + 图谱 |
+| Agent 层 | ❌ 全部 stub | 5 个 Agent 文件待实现 |
+
+---
+
+## RAG 技术方案
+
+| 环节 | 技术选型 | 说明 |
+|---|---|---|
+| PDF 解析 | **Marker** (surya OCR) | 视觉 AI 解析，支持双栏排版/公式→LaTeX/表格→Markdown/图片提取 |
+| 文本分块 | **MarkdownHeaderTextSplitter** | 按 H1/H2/H3 语义切分，保留章节 metadata |
+| Embedding | **BAAI/bge-m3** | 多语言、8192 token、学术专业词汇理解强 |
+| 向量数据库 | **ChromaDB** | 轻量级，本地持久化 |
+| 术语扩展 | terms.csv 中英双向匹配 | 查询中自动追加对应翻译 |
+| 图表处理 | Claude Vision API（Phase 2） | 为相图/TTT曲线等生成文字描述，存入向量库 |
+| 前端 | Streamlit | RAG Debug 页展示检索结果+术语+章节+图表 |
 
 ---
 
@@ -284,11 +256,12 @@ streamlit run app.py
 | 模块 | 技术方案 |
 |---|---|
 | 大语言模型 | Claude API / GPT-4o / 开源模型（Qwen、DeepSeek） |
-| RAG 框架 | LangChain / LlamaIndex |
-| 向量数据库 | Chroma / FAISS / Milvus |
-| 知识图谱 | Neo4j / NetworkX + JSON |
+| RAG 框架 | 自建管线（rag/）+ LangChain（分块） |
+| 向量数据库 | ChromaDB |
+| Embedding | BGE-m3 |
+| PDF 解析 | Marker (surya OCR) |
+| 知识图谱 | NetworkX + JSON |
 | 前端 | Streamlit |
-| Embedding | text-embedding-3-large / bge-m3 |
 
 ---
 
