@@ -138,6 +138,8 @@ CaiZhi-Agent/
 │
 ├── database/                      # 关系数据库（stub）
 ├── configs/                       # 配置文件
+├── check_headings.py              # 提取 Markdown 标题大纲（质量校验）
+├── fix_en_headings.py              # 修复英文教材标题层级 + OCR 噪音
 ├── docs/                          # 文档
 │
 ├── requirements.txt
@@ -219,6 +221,7 @@ streamlit run app.py
 | RAG 管线 `rag/` | ✅ 代码就绪 | Marker + 语义分块 + BGE-m3 + 双语检索 |
 | RAG 管线执行 | ✅ 已完成 | RTX 5090 服务器，两本教材 PDF→MD 成功 |
 | 标题质量校验 | ✅ 已通过 | `check_headings.py` 提取大纲，中文层级优秀 |
+| 英文标题修复 | ✅ 已完成 | `fix_en_headings.py` 修复 OCR 噪音 + 章节升级 |
 | RAG Debug (页 8) | ✅ 已实现 | 术语展示 + 章节信息 + 双语结果 + 图表描述 |
 | RAG 检索服务 | ✅ 已实现 | 术语扩展 → 双语检索 → 合并排序 |
 | 智能答疑 (页 1) | 🔧 框架已有 | Prompt 组装就绪，LLM 调用待接入 |
@@ -243,7 +246,7 @@ streamlit run app.py
 | 🇨🇳 材料科学基础（清华） | 1.74 MB | 813 张 |
 | 🇬🇧 Materials Science (Callister 10e) | 3.13 MB | 823 张 |
 
-质量评估：中文标题层级优秀（H1→H2→H3），英文偏扁平（多为 H2，含少量公式噪音）。
+质量评估：中文标题层级优秀（H1→H2→H3）。英文原始标题偏扁平（多为 H2），通过 `fix_en_headings.py` 修复后：25 个 H1 章、106 个 H2 节、13 个 H3 小节，22 个章节完整对齐。
 
 ---
 
