@@ -11,6 +11,7 @@ PDF → Markdown 转换，使用 Marker (surya OCR)。
         en/{doc_id}/page_001_img_001.png
 """
 
+from io import BytesIO
 from pathlib import Path
 from marker.converters.pdf import PdfConverter
 from marker.models import create_model_dict
@@ -54,10 +55,17 @@ def convert_pdf(pdf_path: str, language: str) -> dict:
 
     # 保存提取的图片（Marker 将图片放在 rendered.images 字典中）
     image_files = []
-    for img_name, img_bytes in rendered.images.items():
+    for img_name, img_data in rendered.images.items():
         # Marker 图片名格式通常为 "page_001_img_001.png"
         img_path = images_dir / img_name
-        img_path.write_bytes(img_bytes)
+        if hasattr(img_data, 'save'):
+            # Marker >=1.10 返回 PIL Image 对象
+            buf = BytesIO()
+            img_data.save(buf, format='PNG')
+            img_path.write_bytes(buf.getvalue())
+        else:
+            # 旧版返回 bytes
+            img_path.write_bytes(img_data)
         image_files.append({
             "file_name": img_name,
             "path": str(img_path),
