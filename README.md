@@ -152,7 +152,8 @@ CaiZhi-Agent/
 ## 快速开始
 
 > ⚠️ 项目处于 V1 最小可行性测试阶段，聚焦"铁碳相图与钢的热处理"知识单元。
-> RAG 管线代码已就绪，**需要在 8GB+ RAM 的服务器上执行 PDF 解析**（Marker 模型约 3.5GB）。
+> RAG 管线 **已在 RTX 5090 服务器上执行**，两本教材 PDF→Markdown 转换完成（1,636 张图表 + 4.8 MB Markdown）。
+> 以下为首次部署步骤，如需重新执行 PDF 转换请参考 `CLAUDE.md`。
 
 ### 1. 安装依赖
 
@@ -186,12 +187,9 @@ ANTHROPIC_API_KEY=sk-ant-...
 # Step 1: PDF → Markdown（先人工检查 Markdown 质量）
 python -m rag.prepare_chunks --pdf-only
 
-# 检查 data/processed/markdown/ 下的 Markdown：
-#   ① 章节标题是否识别为 #/##/###
-#   ② 正文顺序是否正常
-#   ③ 表格是否有严重错乱
-#   ④ 公式是否至少可读
-#   ⑤ 图是否被保存
+# 检查 Markdown 质量 —— 用 check_headings.py 提取大纲
+python check_headings.py
+# 核验：① 章节标题是否识别为 #/##/###  ② 大纲是否与目录对应
 
 # Step 2: Markdown → 语义 Chunks
 python -m rag.prepare_chunks --chunk-only
@@ -219,7 +217,8 @@ streamlit run app.py
 | 模块 | 状态 | 说明 |
 |---|---|---|
 | RAG 管线 `rag/` | ✅ 代码就绪 | Marker + 语义分块 + BGE-m3 + 双语检索 |
-| RAG 管线执行 | ⏳ 待服务器运行 | 本地内存不足，需 8GB+ RAM |
+| RAG 管线执行 | ✅ 已完成 | RTX 5090 服务器，两本教材 PDF→MD 成功 |
+| 标题质量校验 | ✅ 已通过 | `check_headings.py` 提取大纲，中文层级优秀 |
 | RAG Debug (页 8) | ✅ 已实现 | 术语展示 + 章节信息 + 双语结果 + 图表描述 |
 | RAG 检索服务 | ✅ 已实现 | 术语扩展 → 双语检索 → 合并排序 |
 | 智能答疑 (页 1) | 🔧 框架已有 | Prompt 组装就绪，LLM 调用待接入 |
@@ -234,6 +233,17 @@ streamlit run app.py
 | 术语扩展 `term_expander.py` | ✅ 已实现 | 查询中英双向术语扩展 |
 | Prompt 构建 | ✅ 已实现 | 双语教材 + 图表 + 术语 + 图谱 |
 | Agent 层 | ❌ 全部 stub | 5 个 Agent 文件待实现 |
+
+---
+
+**转换结果**（2026-07-09，RTX 5090）：
+
+| 教材 | Markdown | 图片 |
+|------|----------|------|
+| 🇨🇳 材料科学基础（清华） | 1.74 MB | 813 张 |
+| 🇬🇧 Materials Science (Callister 10e) | 3.13 MB | 823 张 |
+
+质量评估：中文标题层级优秀（H1→H2→H3），英文偏扁平（多为 H2，含少量公式噪音）。
 
 ---
 
