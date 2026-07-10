@@ -1,25 +1,35 @@
 """
 图片 Caption 生成：调用视觉大模型为教材图表生成文字描述。
 
+支持后端（通过环境变量 CAPTION_BACKEND 选择）：
+  - dashscope  : Qwen-VL-Max（OpenAI 兼容接口，国内直连，推荐）
+  - anthropic  : Claude Vision（默认）
+  - openai     : GPT-4o（OpenAI 原生接口）
+
 原则：
   - 第一轮默认关闭（prepare_chunks.py 中 ENABLE_IMAGE_CAPTION = False）
   - 打开后限制 MAX_CAPTION_IMAGES = 10
   - 宁可少说，不要编造
 """
 
+import os
 import json
 import base64
 from pathlib import Path
-
-from anthropic import Anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# 后端选择
+CAPTION_BACKEND = os.getenv("CAPTION_BACKEND", "dashscope")
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
 
-MAX_CAPTION_IMAGES = 10
+MAX_CAPTION_IMAGES = 99999  # 无限制，全量标注
+
+# Figure 文件名关键字：只标注含这些关键字的图片，过滤掉 Picture/Logo/装饰图
+FIGURE_KEYWORDS = ["Figure", "figure", "fig"]
 
 # 材料学专用 prompt：宁可少说，不要编造
 CAPTION_PROMPT = """你是材料科学教材图表解析助手。请用中文描述这张教材图片。
@@ -55,22 +65,11 @@ def get_media_type(image_path: str) -> str:
     return mapping.get(ext, "image/png")
 
 
-def caption_image(image_path: str, client: Anthropic = None) -> dict:
-    """
-    用 Claude Vision 为单张图片生成描述。
+def _caption_anthropic(image_path: str) -> dict:
+    """Claude Vision API"""
+    from anthropic import Anthropic
 
-    返回:
-        {
-            "image_path": "...",
-            "caption_zh": "...",
-            "caption_en": "",
-            "related_terms": [...],
-            "confidence": "medium"
-        }
-    """
-    if client is None:
-        client = Anthropic()
-
+    client = Anthropic()
     base64_image = encode_image(image_path)
     media_type = get_media_type(image_path)
 
@@ -93,7 +92,59 @@ def caption_image(image_path: str, client: Anthropic = None) -> dict:
         }]
     )
 
-    caption_text = message.content[0].text
+    return message.content[0].text
+
+
+def _caption_openai_compatible(image_path: str,
+                                api_key: str = None,
+                                base_url: str = None,
+                                model: str = None) -> dict:
+    """OpenAI 兼容接口（DashScope / OpenAI 原生）"""
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key=api_key or os.getenv("DASHSCOPE_API_KEY"),
+        base_url=base_url or os.getenv("CAPTION_BASE_URL",
+                                        "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    )
+    model = model or os.getenv("CAPTION_MODEL", "qwen-vl-max")
+
+    base64_image = encode_image(image_path)
+    media_type = get_media_type(image_path)
+    data_uri = f"data:{media_type};base64,{base64_image}"
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": CAPTION_PROMPT},
+                {"type": "image_url", "image_url": {"url": data_uri}},
+            ]
+        }],
+        max_tokens=600,
+    )
+
+    return response.choices[0].message.content
+
+
+def caption_image(image_path: str, client=None) -> dict:
+    """
+    调用视觉大模型为单张图片生成描述（自动根据 CAPTION_BACKEND 选择后端）。
+
+    返回:
+        {
+            "image_path": "...",
+            "caption_zh": "...",
+            "caption_en": "",
+            "related_terms": [...],
+            "confidence": "medium"
+        }
+    """
+    if CAPTION_BACKEND == "dashscope" or CAPTION_BACKEND == "openai":
+        caption_text = _caption_openai_compatible(image_path)
+    else:
+        caption_text = _caption_anthropic(image_path)
 
     # 简单解析：提取关键术语
     related_terms = []
@@ -117,7 +168,6 @@ def caption_folder(
     doc_id: str,
     language: str,
     file_name: str = "",
-    client: Anthropic = None,
     max_images: int = MAX_CAPTION_IMAGES,
 ) -> list[dict]:
     """
@@ -131,33 +181,38 @@ def caption_folder(
         print(f"[Captioner] Images dir not found: {images_dir}")
         return []
 
-    image_files = sorted([
+    all_files = sorted([
         f for f in images_dir.glob("*")
         if f.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp")
     ])
 
-    if not image_files:
+    if not all_files:
         print(f"[Captioner] No images found in {images_dir}")
         return []
+
+    # 默认只标注含 Figure 关键字的正式图表（过滤 Picture/Logo）
+    figure_files = [f for f in all_files if any(kw in f.name for kw in FIGURE_KEYWORDS)]
+    skipped = len(all_files) - len(figure_files)
+    if skipped > 0:
+        print(f"[Captioner] 过滤掉 {skipped} 张非 Figure 图片，剩余 {len(figure_files)} 张正式图表")
+    image_files = figure_files if figure_files else all_files  # 如果没有 Figure 则全部处理
 
     # 限制数量
     if len(image_files) > max_images:
         print(f"[Captioner] Limiting to {max_images}/{len(image_files)} images")
         image_files = image_files[:max_images]
 
-    if client is None:
-        client = Anthropic()
-
     if not file_name:
         file_name = f"{doc_id}.pdf"
 
+    print(f"[Captioner] Backend: {CAPTION_BACKEND}, Model: {os.getenv('CAPTION_MODEL', 'qwen-vl-max')}")
     captions = []
 
     for idx, img_path in enumerate(image_files, start=1):
         print(f"[Captioner] ({idx}/{len(image_files)}) {img_path.name}")
 
         try:
-            result = caption_image(str(img_path), client=client)
+            result = caption_image(str(img_path))
         except Exception as e:
             print(f"  ⚠️ Failed: {e}")
             result = {
@@ -206,11 +261,28 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python -m rag.image_captioner <images_dir> [doc_id] [language]")
         print("Example: python -m rag.image_captioner data/processed/images/zh/材料科学基础_清华 材料科学基础_清华 zh")
+        print("Batch:   python -m rag.image_captioner --all")
         sys.exit(1)
 
-    images_dir = sys.argv[1]
-    doc_id = sys.argv[2] if len(sys.argv) > 2 else Path(images_dir).parent.name
-    language = sys.argv[3] if len(sys.argv) > 3 else "zh"
+    if sys.argv[1] == "--all":
+        # 批量处理中英文两个文档
+        all_captions = []
+        tasks = [
+            (PROCESSED_DIR / "images" / "zh" / "材料科学基础_清华", "材料科学基础_清华", "zh"),
+            (PROCESSED_DIR / "images" / "en" / "Materials Science and Engineering An Introduction by William D. Callister, Jr., David G. Rethwish 第十版",
+             "Materials_Science_Engineering_Callister", "en"),
+        ]
+        for img_dir, doc_id, lang in tasks:
+            print(f"\n{'='*60}")
+            print(f"[Captioner] 处理: {lang} - {doc_id}")
+            print(f"{'='*60}")
+            captions = caption_folder(str(img_dir), doc_id, lang)
+            all_captions.extend(captions)
+        save_captions(all_captions)
+    else:
+        images_dir = sys.argv[1]
+        doc_id = sys.argv[2] if len(sys.argv) > 2 else Path(images_dir).parent.name
+        language = sys.argv[3] if len(sys.argv) > 3 else "zh"
 
-    captions = caption_folder(images_dir, doc_id, language)
-    save_captions(captions)
+        captions = caption_folder(images_dir, doc_id, language)
+        save_captions(captions)

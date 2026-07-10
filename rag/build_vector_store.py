@@ -108,7 +108,7 @@ def main():
         build_chroma_db(
             chunks_path=str(zh_path),
             collection_name="materials_zh",
-            db_path=str(VECTOR_DIR / "zh_chroma_db"),
+            db_path=str(VECTOR_DIR / "v2_zh"),
         )
     else:
         print(f"[Build] Not found: {zh_path}")
@@ -119,7 +119,7 @@ def main():
         build_chroma_db(
             chunks_path=str(en_path),
             collection_name="materials_en",
-            db_path=str(VECTOR_DIR / "en_chroma_db"),
+            db_path=str(VECTOR_DIR / "v2_en"),
         )
     else:
         print(f"[Build] Not found: {en_path}")
@@ -130,7 +130,7 @@ def main():
         build_chroma_db(
             chunks_path=str(img_path),
             collection_name="materials_images",
-            db_path=str(VECTOR_DIR / "images_chroma_db"),
+            db_path=str(VECTOR_DIR / "v2_images"),
         )
 
 

@@ -16,7 +16,6 @@ import json
 import sys
 from pathlib import Path
 
-from rag.pdf_parser import convert_folder
 from rag.chunker import build_chunks_from_markdown
 
 # ============================================================
@@ -45,6 +44,7 @@ def save_jsonl(records: list[dict], output_path: str):
 
 def step_pdf_to_markdown(pdf_dir: str, language: str) -> list[dict]:
     """Step 1: PDF → Markdown + 图片提取"""
+    from rag.pdf_parser import convert_folder  # 惰性导入，避免 --chunk-only 时需要 marker
     print(f"\n{'='*60}")
     print(f"[Step 1] PDF → Markdown ({language})")
     print(f"{'='*60}")

@@ -64,148 +64,541 @@
     "difficulty": "basic"
   }
   ],
-  {
+   {
     "case_id": "QA002",
     "topic_id": "K002",
+    "linked_question_id": "Q002",
     "question_zh": "马氏体为什么硬而脆？",
     "question_en": "Why is martensite hard and brittle?",
     "expected_chain_id": "C002",
-    "expected_terms": [],
-    "expected_terms_en": [],
-    "expected_key_points": [],
-    "common_misconceptions": [],
-    "gold_answer": "",
-    "retrieval_keywords_zh": [],
-    "retrieval_keywords_en": [],
-    "difficulty": "basic",
-    "source_refs": []
+    "expected_terms": [
+      "马氏体",
+      "晶格畸变",
+      "位错运动",
+      "硬度",
+      "脆性",
+      "碳原子过饱和"
+    ],
+    "expected_terms_en": [
+      "Martensite",
+      "Lattice distortion",
+      "Dislocation motion",
+      "Hardness",
+      "Brittleness",
+      "Carbon supersaturation"
+    ],
+    "expected_key_points": [
+      "马氏体是奥氏体经快速冷却生成的过饱和碳固溶体",
+      "过饱和碳原子造成严重晶格畸变",
+      "晶格畸变强烈阻碍位错运动，使硬度显著升高",
+      "马氏体相变产生大量内应力与位错缠结",
+      "塑性变形协调能力差，因此表现出高脆性"
+    ],
+    "gold_answer": "马氏体是奥氏体快速冷却后形成的过饱和碳固溶体，过饱和碳原子引发严重晶格畸变，强烈阻碍位错运动，因此硬度很高；同时相变内应力大、位错缠结严重，塑性变形能力差，故而脆性较强。",
+    "common_misconceptions": [
+      "误以为马氏体硬而脆是因为碳含量整体升高",
+      "误以为马氏体的脆性仅由晶粒细化导致",
+      "误以为马氏体是铁与碳形成的金属化合物"
+    ],
+    "retrieval_keywords_zh": [
+      "马氏体",
+      "晶格畸变",
+      "硬度",
+      "脆性",
+      "位错运动"
+    ],
+    "retrieval_keywords_en": [
+      "martensite",
+      "lattice distortion",
+      "hardness",
+      "brittleness",
+      "dislocation motion"
+    ],
+    "source_status": "pending_auto_retrieval",
+    "source_hints": {
+      "zh_chapter_hint": "钢的热处理；马氏体相变；力学性能",
+      "en_chapter_hint": "Heat treatment of steels; martensitic transformation; mechanical properties",
+      "note": "来源先不要求人工精确到页码，后续由 RAG 检索自动补候选来源。"
+    },
+    "candidate_source_refs": [],
+    "verified_source_refs": [],
+    "difficulty": "basic"
   },
   {
     "case_id": "QA003",
     "topic_id": "K003",
+    "linked_question_id": "Q003",
     "question_zh": "为什么淬火后通常还要回火？",
     "question_en": "Why is tempering usually performed after quenching?",
     "expected_chain_id": "C003",
-    "expected_terms": [],
-    "expected_terms_en": [],
-    "expected_key_points": [],
-    "common_misconceptions": [],
-    "gold_answer": "",
-    "retrieval_keywords_zh": [],
-    "retrieval_keywords_en": [],
-    "difficulty": "basic",
-    "source_refs": []
+    "expected_terms": [
+      "淬火",
+      "回火",
+      "马氏体",
+      "脆性",
+      "韧性",
+      "淬火内应力"
+    ],
+    "expected_terms_en": [
+      "Quenching",
+      "Tempering",
+      "Martensite",
+      "Brittleness",
+      "Toughness",
+      "Quenching internal stress"
+    ],
+    "expected_key_points": [
+      "淬火后钢材组织以马氏体为主，硬度高但脆性大",
+      "淬火过程会产生较大内应力，易导致工件变形开裂",
+      "回火可降低马氏体过饱和度，析出细小碳化物",
+      "回火能消除淬火内应力，降低脆性，提升韧性",
+      "回火可稳定组织与尺寸，保证工件服役精度"
+    ],
+    "gold_answer": "淬火后钢材得到硬脆的马氏体组织，且存在较大淬火内应力，易发生变形开裂。回火可以降低马氏体的碳过饱和度、消除内应力，在保留一定硬度的同时降低脆性、提升韧性，还能稳定组织与工件尺寸。",
+    "common_misconceptions": [
+      "误以为回火会完全消除淬火获得的硬度",
+      "误以为回火仅用于消除内应力，不改变组织",
+      "误以为所有钢材淬火后的回火工艺参数完全相同"
+    ],
+    "retrieval_keywords_zh": [
+      "淬火",
+      "回火",
+      "马氏体",
+      "韧性",
+      "内应力"
+    ],
+    "retrieval_keywords_en": [
+      "quenching",
+      "tempering",
+      "martensite",
+      "toughness",
+      "internal stress"
+    ],
+    "source_status": "pending_auto_retrieval",
+    "source_hints": {
+      "zh_chapter_hint": "钢的热处理；淬火与回火；回火工艺",
+      "en_chapter_hint": "Heat treatment of steels; quenching and tempering; tempering process",
+      "note": "来源先不要求人工精确到页码，后续由 RAG 检索自动补候选来源。"
+    },
+    "candidate_source_refs": [],
+    "verified_source_refs": [],
+    "difficulty": "basic"
   },
   {
     "case_id": "QA004",
     "topic_id": "K004",
+    "linked_question_id": "Q004",
     "question_zh": "珠光体和马氏体有什么区别？",
     "question_en": "What is the difference between pearlite and martensite?",
     "expected_chain_id": "C004",
-    "expected_terms": [],
-    "expected_terms_en": [],
-    "expected_key_points": [],
-    "common_misconceptions": [],
-    "gold_answer": "",
-    "retrieval_keywords_zh": [],
-    "retrieval_keywords_en": [],
-    "difficulty": "basic",
-    "source_refs": []
+    "expected_terms": [
+      "珠光体",
+      "马氏体",
+      "扩散",
+      "无扩散相变",
+      "奥氏体",
+      "硬度",
+      "塑性"
+    ],
+    "expected_terms_en": [
+      "Pearlite",
+      "Martensite",
+      "Diffusion",
+      "Diffusionless transformation",
+      "Austenite",
+      "Hardness",
+      "Ductility"
+    ],
+    "expected_key_points": [
+      "形成条件不同：珠光体由奥氏体缓慢冷却生成，马氏体由快速冷却生成",
+      "相变机制不同：珠光体属于扩散型相变，马氏体属于无扩散相变",
+      "相组成不同：珠光体是铁素体与渗碳体的层状混合物，马氏体是过饱和碳固溶体",
+      "性能不同：珠光体塑性韧性好、硬度较低，马氏体硬度高、脆性大"
+    ],
+    "gold_answer": "珠光体是奥氏体缓慢冷却经扩散型相变形成的、由铁素体与渗碳体组成的层状混合物，塑韧性较好、硬度较低；马氏体是奥氏体快速冷却经无扩散相变形成的过饱和碳固溶体，硬度高、脆性大，二者在相变机制、相组成与力学性能上均有本质区别。",
+    "common_misconceptions": [
+      "误以为珠光体和马氏体都是单一的铁基固溶体",
+      "误以为二者仅冷却速度不同，组织成分完全一致",
+      "误以为硬度差异仅由晶粒大小不同导致"
+    ],
+    "retrieval_keywords_zh": [
+      "珠光体",
+      "马氏体",
+      "扩散相变",
+      "硬度",
+      "组织对比"
+    ],
+    "retrieval_keywords_en": [
+      "pearlite",
+      "martensite",
+      "diffusional transformation",
+      "hardness",
+      "microstructure comparison"
+    ],
+    "source_status": "pending_auto_retrieval",
+    "source_hints": {
+      "zh_chapter_hint": "钢的热处理；固态相变；珠光体与马氏体",
+      "en_chapter_hint": "Heat treatment of steels; solid state transformation; pearlite and martensite",
+      "note": "来源先不要求人工精确到页码，后续由 RAG 检索自动补候选来源。"
+    },
+    "candidate_source_refs": [],
+    "verified_source_refs": [],
+    "difficulty": "basic"
   },
   {
     "case_id": "QA005",
     "topic_id": "K005",
+    "linked_question_id": "Q005",
     "question_zh": "退火为什么会降低硬度、提高塑性？",
     "question_en": "Why does annealing reduce hardness and improve ductility?",
     "expected_chain_id": "C005",
-    "expected_terms": [],
-    "expected_terms_en": [],
-    "expected_key_points": [],
-    "common_misconceptions": [],
-    "gold_answer": "",
-    "retrieval_keywords_zh": [],
-    "retrieval_keywords_en": [],
-    "difficulty": "basic",
-    "source_refs": []
+    "expected_terms": [
+      "退火",
+      "扩散",
+      "珠光体",
+      "位错运动",
+      "硬度",
+      "塑性",
+      "内应力"
+    ],
+    "expected_terms_en": [
+      "Annealing",
+      "Diffusion",
+      "Pearlite",
+      "Dislocation motion",
+      "Hardness",
+      "Ductility",
+      "Internal stress"
+    ],
+    "expected_key_points": [
+      "退火是将钢材加热保温后缓慢冷却的热处理工艺",
+      "缓慢冷却下原子充分扩散，形成平衡态珠光体组织",
+      "平衡组织无晶格畸变，位错密度低，位错运动阻力小",
+      "退火可消除加工内应力，降低塑性变形阻碍",
+      "位错易滑移使塑性提升，抵抗变形能力下降使硬度降低"
+    ],
+    "gold_answer": "退火时钢材经加热保温后缓慢冷却，原子充分扩散后形成平衡态珠光体组织，晶格畸变小、位错密度低，位错运动阻力大幅降低；同时加工内应力被消除，因此材料硬度下降、塑性得到提升。",
+    "common_misconceptions": [
+      "误以为退火降低硬度是因为钢材碳含量减少",
+      "误以为退火仅改变硬度，对组织没有实质影响",
+      "误以为所有退火工艺都能细化晶粒、提升塑性"
+    ],
+    "retrieval_keywords_zh": [
+      "退火",
+      "硬度",
+      "塑性",
+      "珠光体",
+      "内应力"
+    ],
+    "retrieval_keywords_en": [
+      "annealing",
+      "hardness",
+      "ductility",
+      "pearlite",
+      "internal stress"
+    ],
+    "source_status": "pending_auto_retrieval",
+    "source_hints": {
+      "zh_chapter_hint": "钢的热处理；退火工艺；力学性能",
+      "en_chapter_hint": "Heat treatment of steels; annealing process; mechanical properties",
+      "note": "来源先不要求人工精确到页码，后续由 RAG 检索自动补候选来源。"
+    },
+    "candidate_source_refs": [],
+    "verified_source_refs": [],
+    "difficulty": "basic"
   },
   {
     "case_id": "QA006",
     "topic_id": "K006",
+    "linked_question_id": "Q006",
     "question_zh": "正火和退火有什么区别？",
     "question_en": "What is the difference between normalizing and annealing?",
     "expected_chain_id": "C006",
-    "expected_terms": [],
-    "expected_terms_en": [],
-    "expected_key_points": [],
-    "common_misconceptions": [],
-    "gold_answer": "",
-    "retrieval_keywords_zh": [],
-    "retrieval_keywords_en": [],
-    "difficulty": "medium",
-    "source_refs": []
+    "expected_terms": [
+      "正火",
+      "退火",
+      "冷却速度",
+      "珠光体",
+      "硬度",
+      "切削性能"
+    ],
+    "expected_terms_en": [
+      "Normalizing",
+      "Annealing",
+      "Cooling rate",
+      "Pearlite",
+      "Hardness",
+      "Machinability"
+    ],
+    "expected_key_points": [
+      "冷却方式不同：退火为随炉缓慢冷却，正火为空气中自然冷却",
+      "冷却速度不同：正火冷却速度更快，退火冷却速度更慢",
+      "组织特征不同：正火得到的珠光体更细密，强度与硬度更高",
+      "工艺效率不同：正火周期短效率高，退火周期长能耗高",
+      "应用场景不同：退火多用于软化去应力，正火多用于改善切削性能"
+    ],
+    "gold_answer": "正火与退火的核心区别在于冷却方式与冷却速度：退火随炉缓慢冷却，冷却速度慢，得到的珠光体组织较粗，硬度更低，主要用于软化材料、消除内应力；正火在空气中冷却，冷却速度更快，组织更细密，硬度与强度稍高，多用于改善组织与切削加工性能。",
+    "common_misconceptions": [
+      "误以为正火和退火是同一种工艺的不同叫法",
+      "误以为正火的硬度比退火更低，塑性更好",
+      "误以为二者都能完全消除工件内部的所有内应力"
+    ],
+    "retrieval_keywords_zh": [
+      "正火",
+      "退火",
+      "冷却速度",
+      "硬度",
+      "工艺对比"
+    ],
+    "retrieval_keywords_en": [
+      "normalizing",
+      "annealing",
+      "cooling rate",
+      "hardness",
+      "process comparison"
+    ],
+    "source_status": "pending_auto_retrieval",
+    "source_hints": {
+      "zh_chapter_hint": "钢的热处理；正火与退火；工艺对比",
+      "en_chapter_hint": "Heat treatment of steels; normalizing and annealing; process comparison",
+      "note": "来源先不要求人工精确到页码，后续由 RAG 检索自动补候选来源。"
+    },
+    "candidate_source_refs": [],
+    "verified_source_refs": [],
+    "difficulty": "medium"
   },
   {
     "case_id": "QA007",
     "topic_id": "K007",
+    "linked_question_id": "Q007",
     "question_zh": "亚共析钢和过共析钢有什么区别？",
     "question_en": "What is the difference between hypoeutectoid steel and hypereutectoid steel?",
     "expected_chain_id": "C007",
-    "expected_terms": [],
-    "expected_terms_en": [],
-    "expected_key_points": [],
-    "common_misconceptions": [],
-    "gold_answer": "",
-    "retrieval_keywords_zh": [],
-    "retrieval_keywords_en": [],
-    "difficulty": "medium",
-    "source_refs": []
+    "expected_terms": [
+      "亚共析钢",
+      "过共析钢",
+      "共析点",
+      "珠光体",
+      "铁素体",
+      "渗碳体"
+    ],
+    "expected_terms_en": [
+      "Hypoeutectoid steel",
+      "Hypereutectoid steel",
+      "Eutectoid point",
+      "Pearlite",
+      "Ferrite",
+      "Cementite"
+    ],
+    "expected_key_points": [
+      "碳含量不同：以共析点0.77wt%碳为界，亚共析钢碳含量低于该值，过共析钢高于该值",
+      "室温平衡组织不同：亚共析钢为铁素体+珠光体，过共析钢为珠光体+二次渗碳体",
+      "力学性能不同：亚共析钢塑韧性更好，过共析钢硬度与耐磨性更高",
+      "热处理工艺不同：亚共析钢多采用完全奥氏体化淬火，过共析钢多采用不完全淬火"
+    ],
+    "gold_answer": "二者以铁碳相图共析点（0.77wt%碳）为分界：亚共析钢碳含量低于共析成分，室温组织为铁素体加珠光体，塑韧性更好；过共析钢碳含量高于共析成分，室温组织为珠光体加二次渗碳体，硬度与耐磨性更高，二者的热处理工艺也存在差异。",
+    "common_misconceptions": [
+      "误以为钢的碳含量越高，强度与韧性就越高",
+      "误以为过共析钢的室温组织全部由渗碳体组成",
+      "误以为亚共析钢和过共析钢的淬火工艺完全相同"
+    ],
+    "retrieval_keywords_zh": [
+      "亚共析钢",
+      "过共析钢",
+      "共析点",
+      "铁碳相图",
+      "组织"
+    ],
+    "retrieval_keywords_en": [
+      "hypoeutectoid steel",
+      "hypereutectoid steel",
+      "eutectoid point",
+      "iron-carbon phase diagram",
+      "microstructure"
+    ],
+    "source_status": "pending_auto_retrieval",
+    "source_hints": {
+      "zh_chapter_hint": "铁碳相图；钢的分类；平衡组织",
+      "en_chapter_hint": "Iron-carbon phase diagram; steel classification; equilibrium microstructure",
+      "note": "来源先不要求人工精确到页码，后续由 RAG 检索自动补候选来源。"
+    },
+    "candidate_source_refs": [],
+    "verified_source_refs": [],
+    "difficulty": "medium"
   },
   {
     "case_id": "QA008",
     "topic_id": "K008",
+    "linked_question_id": "Q008",
     "question_zh": "如何理解铁碳相图中的共析点？",
     "question_en": "How should we understand the eutectoid point in the iron-carbon phase diagram?",
     "expected_chain_id": "C008",
-    "expected_terms": [],
-    "expected_terms_en": [],
-    "expected_key_points": [],
-    "common_misconceptions": [],
-    "gold_answer": "",
-    "retrieval_keywords_zh": [],
-    "retrieval_keywords_en": [],
-    "difficulty": "medium",
-    "source_refs": []
+    "expected_terms": [
+      "铁碳相图",
+      "共析点",
+      "奥氏体",
+      "珠光体",
+      "共析转变",
+      "渗碳体"
+    ],
+    "expected_terms_en": [
+      "Iron-carbon phase diagram",
+      "Eutectoid point",
+      "Austenite",
+      "Pearlite",
+      "Eutectoid transformation",
+      "Cementite"
+    ],
+    "expected_key_points": [
+      "共析点是铁碳相图中的S点，对应碳含量0.77wt%、温度727℃",
+      "该点发生共析转变：恒温下奥氏体同时分解为铁素体和渗碳体",
+      "共析转变属于固态相变，反应前后所有相均为固相",
+      "共析成分钢平衡冷却后，室温组织为100%珠光体"
+    ],
+    "gold_answer": "铁碳相图中的共析点即S点，对应碳含量0.77wt%、温度727℃；该温度下奥氏体发生恒温共析转变，同时分解出铁素体与渗碳体，形成层片状珠光体组织，共析成分的碳素钢平衡冷却后室温组织为全珠光体。",
+    "common_misconceptions": [
+      "误以为共析点与共晶点是同一概念、同一温度",
+      "误以为共析转变是液态向固态的相变过程",
+      "误以为共析点对应的碳含量为2.11%"
+    ],
+    "retrieval_keywords_zh": [
+      "铁碳相图",
+      "共析点",
+      "共析转变",
+      "珠光体",
+      "S点"
+    ],
+    "retrieval_keywords_en": [
+      "iron-carbon phase diagram",
+      "eutectoid point",
+      "eutectoid transformation",
+      "pearlite",
+      "S point"
+    ],
+    "source_status": "pending_auto_retrieval",
+    "source_hints": {
+      "zh_chapter_hint": "铁碳相图；共析转变；珠光体",
+      "en_chapter_hint": "Iron-carbon phase diagram; eutectoid transformation; pearlite",
+      "note": "来源先不要求人工精确到页码，后续由 RAG 检索自动补候选来源。"
+    },
+    "candidate_source_refs": [],
+    "verified_source_refs": [],
+    "difficulty": "medium"
   },
   {
     "case_id": "QA009",
     "topic_id": "K009",
+    "linked_question_id": "Q009",
     "question_zh": "TTT 曲线有什么用？",
     "question_en": "What is the purpose of a TTT diagram?",
     "expected_chain_id": "C009",
-    "expected_terms": [],
-    "expected_terms_en": [],
-    "expected_key_points": [],
-    "common_misconceptions": [],
-    "gold_answer": "",
-    "retrieval_keywords_zh": [],
-    "retrieval_keywords_en": [],
-    "difficulty": "medium",
-    "source_refs": []
+    "expected_terms": [
+      "TTT曲线",
+      "过冷奥氏体",
+      "等温转变",
+      "珠光体",
+      "马氏体",
+      "热处理工艺"
+    ],
+    "expected_terms_en": [
+      "TTT diagram",
+      "Supercooled austenite",
+      "Isothermal transformation",
+      "Pearlite",
+      "Martensite",
+      "Heat treatment process"
+    ],
+    "expected_key_points": [
+      "TTT曲线反映过冷奥氏体在不同温度等温时的转变规律与产物",
+      "可用于设计等温退火、等温淬火等等温热处理工艺",
+      "可预测不同等温条件下钢材的最终组织与力学性能",
+      "是分析过冷奥氏体转变规律、制定热处理规范的基础工具"
+    ],
+    "gold_answer": "TTT曲线即过冷奥氏体等温转变曲线，可直观反映不同温度下过冷奥氏体的转变进程与产物类型；主要用于设计等温退火、等温淬火等等温热处理工艺，预测等温处理后的组织与性能，是热处理工艺分析的重要工具。",
+    "common_misconceptions": [
+      "误以为TTT曲线可直接用于分析连续冷却的淬火过程",
+      "误以为不同成分钢材的TTT曲线形态完全一致",
+      "误以为TTT曲线仅描述温度与组织的关系，与时间无关"
+    ],
+    "retrieval_keywords_zh": [
+      "TTT曲线",
+      "等温转变",
+      "过冷奥氏体",
+      "热处理工艺"
+    ],
+    "retrieval_keywords_en": [
+      "TTT diagram",
+      "isothermal transformation",
+      "supercooled austenite",
+      "heat treatment process"
+    ],
+    "source_status": "pending_auto_retrieval",
+    "source_hints": {
+      "zh_chapter_hint": "过冷奥氏体转变；TTT曲线；热处理工艺设计",
+      "en_chapter_hint": "Supercooled austenite transformation; TTT diagram; heat treatment process design",
+      "note": "来源先不要求人工精确到页码，后续由 RAG 检索自动补候选来源。"
+    },
+    "candidate_source_refs": [],
+    "verified_source_refs": [],
+    "difficulty": "medium"
   },
   {
     "case_id": "QA010",
     "topic_id": "K010",
+    "linked_question_id": "Q010",
     "question_zh": "CCT 曲线和 TTT 曲线有什么区别？",
     "question_en": "What is the difference between CCT and TTT diagrams?",
     "expected_chain_id": "C010",
-    "expected_terms": [],
-    "expected_terms_en": [],
-    "expected_key_points": [],
-    "common_misconceptions": [],
-    "gold_answer": "",
-    "retrieval_keywords_zh": [],
-    "retrieval_keywords_en": [],
-    "difficulty": "medium",
-    "source_refs": []
+    "expected_terms": [
+      "CCT曲线",
+      "TTT曲线",
+      "过冷奥氏体",
+      "连续冷却",
+      "等温转变",
+      "临界冷却速度"
+    ],
+    "expected_terms_en": [
+      "CCT diagram",
+      "TTT diagram",
+      "Supercooled austenite",
+      "Continuous cooling",
+      "Isothermal transformation",
+      "Critical cooling rate"
+    ],
+    "expected_key_points": [
+      "测定条件不同：TTT曲线基于恒温等温过程测定，CCT曲线基于连续冷却过程测定",
+      "转变规律不同：连续冷却下原子扩散时间更短，CCT转变温度更低、孕育期更长",
+      "应用场景不同：TTT适用于等温热处理工艺，CCT适用于淬火等连续冷却工艺",
+      "CCT曲线可直接给出临界冷却速度，用于评估钢材的淬硬能力"
+    ],
+    "gold_answer": "TTT曲线是过冷奥氏体的等温转变曲线，基于恒温条件测定，用于等温热处理工艺设计；CCT曲线是过冷奥氏体的连续冷却转变曲线，基于连续降温条件测定，转变温度更低、孕育期更长，可直接给出临界冷却速度，更适用于淬火等实际连续冷却工艺的分析。",
+    "common_misconceptions": [
+      "误以为CCT曲线与TTT曲线完全等价，可以通用",
+      "误以为CCT曲线只是TTT曲线向低温方向的简单平移",
+      "误以为实际淬火工艺设计用TTT曲线比CCT更准确"
+    ],
+    "retrieval_keywords_zh": [
+      "CCT曲线",
+      "TTT曲线",
+      "连续冷却",
+      "等温转变",
+      "临界冷却速度"
+    ],
+    "retrieval_keywords_en": [
+      "CCT diagram",
+      "TTT diagram",
+      "continuous cooling",
+      "isothermal transformation",
+      "critical cooling rate"
+    ],
+    "source_status": "pending_auto_retrieval",
+    "source_hints": {
+      "zh_chapter_hint": "过冷奥氏体转变；CCT与TTT曲线；曲线对比",
+      "en_chapter_hint": "Supercooled austenite transformation; CCT and TTT diagrams; curve comparison",
+      "note": "来源先不要求人工精确到页码，后续由 RAG 检索自动补候选来源。"
+    },
+    "candidate_source_refs": [],
+    "verified_source_refs": [],
+    "difficulty": "medium"
   }
 ]

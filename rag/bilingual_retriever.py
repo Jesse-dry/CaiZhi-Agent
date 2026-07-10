@@ -3,7 +3,7 @@
 
 - BGE-m3 embedding
 - 自动术语扩展（中→英、英→中）
-- 单例模式，首次调用加载模型
+- 惰性 PersistentClient：同一时间只保持一个客户端连接，避免 Windows 文件锁冲突
 """
 
 import json
@@ -22,6 +22,7 @@ VECTOR_DIR = BASE_DIR / "vector_store"
 class BilingualRetriever:
     """
     双语教材检索器。
+    惰性 PersistentClient：每次查询时打开单个客户端，用完即释放。
 
     用法:
         retriever = BilingualRetriever()
@@ -40,27 +41,34 @@ class BilingualRetriever:
     ):
         self.model = SentenceTransformer(model_name)
 
+        # 只存路径和集合名，不提前打开客户端
+        # 注意：ChromaDB Rust 后端对含中文的绝对路径有 HNSW bug，统一用相对路径
         if zh_db_path is None:
-            zh_db_path = str(VECTOR_DIR / "zh_chroma_db")
+            zh_db_path = "vector_store/v2_zh"
         if en_db_path is None:
-            en_db_path = str(VECTOR_DIR / "en_chroma_db")
+            en_db_path = "vector_store/v2_en"
         if images_db_path is None:
-            images_db_path = str(VECTOR_DIR / "images_chroma_db")
+            images_db_path = "vector_store/v2_images"
 
-        self.zh_client = chromadb.PersistentClient(path=zh_db_path)
-        self.en_client = chromadb.PersistentClient(path=en_db_path)
+        self._db_paths = {
+            "zh": zh_db_path,
+            "en": en_db_path,
+            "images": images_db_path,
+        }
+        self._collection_names = {
+            "zh": zh_collection_name,
+            "en": en_collection_name,
+            "images": images_collection_name,
+        }
 
-        self.zh_collection = self.zh_client.get_or_create_collection(zh_collection_name)
-        self.en_collection = self.en_client.get_or_create_collection(en_collection_name)
-
-        try:
-            self.images_client = chromadb.PersistentClient(path=images_db_path)
-            self.images_collection = self.images_client.get_or_create_collection(
-                images_collection_name
-            )
-        except Exception:
-            self.images_client = None
-            self.images_collection = None
+    def _get_collection(self, key: str):
+        """惰性获取单个 collection——打开 client → 取 collection → 返回。
+        不持有 client 引用，让 GC 自动回收，避免 Windows 多客户端文件锁冲突。
+        用 get_collection 而非 get_or_create_collection，避免触发 compactor。"""
+        db_path = self._db_paths[key]
+        name = self._collection_names[key]
+        client = chromadb.PersistentClient(path=db_path)
+        return client.get_collection(name)
 
     def _query_collection(self, collection, query: str, top_k: int = 5) -> list[dict]:
         query_embedding = self.model.encode(
@@ -110,6 +118,7 @@ class BilingualRetriever:
                  expand_terms: bool = True) -> dict:
         """
         双语检索主入口。
+        依次查询 zh → en → images，每个客户端用完即释放。
         """
         if expand_terms:
             expanded = expand_query_with_terms(query)
@@ -121,12 +130,22 @@ class BilingualRetriever:
             en_query = query
             matched_terms = []
 
-        zh_contexts = self._query_collection(self.zh_collection, zh_query, top_k=top_k_each)
-        en_contexts = self._query_collection(self.en_collection, en_query, top_k=top_k_each)
+        # 逐个查询，同一时间只有一个 PersistentClient 存活
+        zh_coll = self._get_collection("zh")
+        zh_contexts = self._query_collection(zh_coll, zh_query, top_k=top_k_each)
+        del zh_coll  # 释放客户端
+
+        en_coll = self._get_collection("en")
+        en_contexts = self._query_collection(en_coll, en_query, top_k=top_k_each)
+        del en_coll
 
         image_contexts = []
-        if self.images_collection is not None:
-            image_contexts = self._query_collection(self.images_collection, query, top_k=3)
+        try:
+            img_coll = self._get_collection("images")
+            image_contexts = self._query_collection(img_coll, query, top_k=3)
+            del img_coll
+        except Exception:
+            pass
 
         merged = sorted(
             zh_contexts + en_contexts + image_contexts,
