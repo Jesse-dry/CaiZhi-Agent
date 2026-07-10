@@ -18,22 +18,23 @@ PAGES = {
 DEFAULT_STATE = {
     "user_id": "student_test_01",
 
+    # 当前上下文 ID 指针
+    "current_knowledge_id": "K001",
     "current_question_id": "Q001",
     "current_chain_id": "C001",
     "current_socratic_id": "S001",
     "current_feynman_id": "F001",
 
+    # 各阶段最新结果
     "last_qa_result": None,
     "last_diagnosis": None,
-    "last_socratic_summary": None,
+    "last_socratic_result": None,
     "last_feynman_result": None,
     "last_learning_path": None,
 
+    # 聊天历史
     "qa_messages": [],
-    "socratic_step_index": 0,
     "socratic_history": [],
-
-    "demo_stage": "answering",
 }
 
 

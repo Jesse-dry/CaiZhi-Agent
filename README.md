@@ -99,9 +99,11 @@ CaiZhi-Agent/
 │   ├── chunker.py                 #   语义分块（MarkdownHeaderTextSplitter）
 │   ├── prepare_chunks.py          #   全流程编排（--pdf-only / --chunk-only）
 │   ├── build_vector_store.py      #   ChromaDB + BGE-m3 向量化
-│   ├── bilingual_retriever.py     #   双语检索 + 术语扩展
+│   ├── bilingual_retriever.py     #   双语检索 + 术语扩展 + 图片字段透传
 │   ├── check_chunks.py            #   Chunk 质量统计
-│   └── image_captioner.py         #   图表 Caption（Phase 2，默认关闭）
+│   ├── image_captioner.py         #   图表 Caption（Qwen-VL-Max）
+│   ├── fix_metadata.py            #   修复向量库 metadata（免重编码）
+│   └── enrich_images.py           #   图片索引补全（page/nearby_header/caption_status）
 │
 ├── agents/                        # AI 推理层 —— 全部为 stub
 │   ├── qa_agent.py
@@ -220,10 +222,14 @@ streamlit run app.py
 |---|---|---|
 | RAG 管线 `rag/` | ✅ 代码就绪 | Marker + 语义分块 + BGE-m3 + 双语检索 |
 | RAG 管线执行 | ✅ 已完成 | RTX 5090 服务器，两本教材 PDF→MD 成功 |
+| 向量库 metadata 修复 | ✅ 已完成 | `fix_metadata.py` 补全章节/图片字段，免重编码 |
+| 图片索引补全 | ✅ 已完成 | `enrich_images.py` 补全 page/nearby_header/caption_status |
+| 图片 Caption | ✅ 已完成 | Qwen-VL-Max 标注 935 张图表 |
 | 标题质量校验 | ✅ 已通过 | `check_headings.py` 提取大纲，中文层级优秀 |
 | 英文标题修复 | ✅ 已完成 | `fix_en_headings.py` 修复 OCR 噪音 + 章节升级 |
-| RAG Debug (页 8) | ✅ 已实现 | 术语展示 + 章节信息 + 双语结果 + 图表描述 |
-| RAG 检索服务 | ✅ 已实现 | 术语扩展 → 双语检索 → 合并排序 |
+| RAG Debug (页 8) | ✅ 已实现 | 术语 + 章节 + 双语结果 + 图表描述 + 图片字段 |
+| RAG 检索服务 | ✅ 已实现 | 术语扩展 → 双语检索 → 合并排序 + 图片透传 |
+| session_state 体系 | ✅ 已统一 | 清理死 key，统一命名，5 页全链路对齐 |
 | 智能答疑 (页 1) | 🔧 框架已有 | Prompt 组装就绪，LLM 调用待接入 |
 | 错题诊断 (页 2) | ✅ 已实现 | 完整错题诊断 UI + 后端 |
 | 苏格拉底引导 (页 3) | 🔧 框架已有 | |

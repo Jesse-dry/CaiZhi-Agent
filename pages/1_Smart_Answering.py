@@ -78,7 +78,6 @@ if st.session_state.qa_messages:
             }
             st.session_state["current_question_id"] = "Q001"
             st.session_state["current_chain_id"] = "C001"
-            st.session_state["demo_stage"] = "diagnosis"
             go_to("diagnosis")
 
     with col2:

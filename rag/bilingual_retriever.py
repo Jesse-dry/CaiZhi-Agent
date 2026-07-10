@@ -108,6 +108,9 @@ class BilingualRetriever:
                     "headers": headers,
                     "image_path": meta.get("image_path", "") if meta else "",
                     "image_name": meta.get("image_name", "") if meta else "",
+                    "page": meta.get("page", 0) if meta else 0,
+                    "nearby_header": meta.get("nearby_header", "") if meta else "",
+                    "caption_status": meta.get("caption_status", "") if meta else "",
                 },
                 "distance": dist,
             })

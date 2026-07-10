@@ -1,16 +1,17 @@
 # pages/6_Learning path recommendation.py
 
 import streamlit as st
-from utils.state import init_session_state, go_to
-from services.recommendation_service import generate_learning_path
-
-init_session_state()
 
 st.set_page_config(
     page_title="学习路径推荐",
     page_icon="🧭",
     layout="wide"
 )
+
+from utils.state import init_session_state, go_to
+from services.recommendation_service import generate_learning_path
+
+init_session_state()
 
 st.title("🧭 学习路径推荐")
 
@@ -57,7 +58,6 @@ with col1:
 
 with col2:
     if st.button("重新进行苏格拉底引导"):
-        st.session_state["socratic_step_index"] = 0
         st.session_state["socratic_history"] = []
         go_to("socratic")
 

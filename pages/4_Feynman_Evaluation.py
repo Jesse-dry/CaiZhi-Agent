@@ -50,7 +50,6 @@ if st.button("提交评价"):
 if st.session_state.get("last_feynman_result"):
     st.divider()
     if st.button("生成个性化学习路径", type="primary"):
-        st.session_state["demo_stage"] = "learning_path"
         go_to("learning_path")
 
 # TODO: 替换为 services/feynman_service.py 的真实调用

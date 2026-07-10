@@ -1,15 +1,15 @@
 import streamlit as st
 
-from utils.state import init_session_state
-from services.rag_service import search_textbooks
-
-init_session_state()
-
 st.set_page_config(
     page_title="RAG Debug",
     page_icon="🔎",
     layout="wide"
 )
+
+from utils.state import init_session_state
+from services.rag_service import search_textbooks
+
+init_session_state()
 
 st.title("RAG Debug：教材检索测试")
 

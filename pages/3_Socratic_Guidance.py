@@ -52,7 +52,7 @@ if user_ans := st.chat_input("输入你的思考..."):
             st.markdown(summary)
         st.session_state.socratic_history.append({"role": "assistant", "content": summary})
 
-        st.session_state["last_socratic_summary"] = {
+        st.session_state["last_socratic_result"] = {
             "socratic_id": socratic_id,
             "completed": True,
             "summary": "淬火通过快速冷却抑制碳原子扩散，使奥氏体转变为马氏体；马氏体晶格畸变阻碍位错运动，因此硬度提高。"
@@ -67,10 +67,9 @@ if st.button("🔄 重新开始"):
     st.rerun()
 
 # 引导完成后显示进入费曼评价按钮
-if st.session_state.get("last_socratic_summary"):
+if st.session_state.get("last_socratic_result"):
     st.divider()
     if st.button("进入费曼评价", type="primary"):
-        st.session_state["demo_stage"] = "feynman"
         go_to("feynman")
 
 # TODO: 替换为 services/socratic_service.py 的真实调用

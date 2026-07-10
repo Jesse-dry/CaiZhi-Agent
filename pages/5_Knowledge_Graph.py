@@ -1,16 +1,17 @@
 # pages/5_knowledge graph.py
 
 import streamlit as st
-from utils.state import init_session_state, go_to
-from knowledge.knowledge_graph import get_chain_by_id, format_chain_path
-
-init_session_state()
 
 st.set_page_config(
     page_title="知识图谱",
     page_icon="🕸️",
     layout="wide"
 )
+
+from utils.state import init_session_state, go_to
+from knowledge.knowledge_graph import get_chain_by_id, format_chain_path
+
+init_session_state()
 
 st.title("🕸️ 材料知识图谱")
 

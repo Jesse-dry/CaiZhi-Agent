@@ -85,6 +85,7 @@ def build_chroma_db(
                 "chunk_headers": json.dumps(headers, ensure_ascii=False) if headers else "{}",
                 "chunk_type": item.get("chunk_type", "text"),
                 "image_path": item.get("image_path", ""),
+                "image_name": item.get("image_name", ""),
             }
             metadatas.append(meta)
 

@@ -127,3 +127,49 @@ def build_rag_qa_prompt(query, rag_result, graph_chain=None):
 """
 
     return prompt
+
+def build_qa_prompt(
+    user_question,
+    zh_contexts,
+    en_contexts,
+    terms,
+    graph_chain,
+    misconceptions,
+    image_captions=None
+):
+    prompt = f"""
+你是材料专业学习智能体，不是普通问答机器人。
+
+请基于以下材料回答学生问题。
+
+【学生问题】
+{user_question}
+
+【中文教材片段】
+{zh_contexts}
+
+【英文教材片段】
+{en_contexts}
+
+【术语表】
+{terms}
+
+【知识图谱因果链】
+{graph_chain}
+
+【常见误区】
+{misconceptions}
+
+【图表描述】
+{image_captions or "无"}
+
+请按以下结构回答：
+1. 简明回答
+2. 材料学原理
+3. 因果链解释
+4. 关键英文术语
+5. 教材依据
+6. 常见误区提醒
+7. 自测题
+"""
+    return prompt

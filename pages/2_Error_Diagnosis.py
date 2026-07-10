@@ -1,15 +1,15 @@
 import streamlit as st
-from services.diagnosis_service import get_question_for_page, submit_answer
-from utils.state import init_session_state, go_to
-
-init_session_state()
-
 
 st.set_page_config(
     page_title="错题诊断",
     page_icon="🧩",
     layout="wide"
 )
+
+from services.diagnosis_service import get_question_for_page, submit_answer
+from utils.state import init_session_state, go_to
+
+init_session_state()
 
 st.title("🧩 错题诊断")
 
@@ -95,17 +95,13 @@ if result:
 
     with col3:
         if st.button("进入苏格拉底引导", type="primary"):
-            st.session_state["socratic_step_index"] = 0
             st.session_state["socratic_history"] = []
-            st.session_state["demo_stage"] = "socratic"
             go_to("socratic")
 
     with col4:
         if st.button("查看相关知识链"):
-            st.session_state["demo_stage"] = "graph"
             go_to("graph")
 
     with col5:
         if st.button("直接生成学习路径"):
-            st.session_state["demo_stage"] = "learning_path"
             go_to("learning_path")
