@@ -1,57 +1,135 @@
-# pages/4_Feynman_Evaluation.py
+"""
+页面 4：费曼学习法评价（Feynman Evaluation）
+学习闭环第 4 步：苏格拉底引导 → 费曼评价 → 学习路径
+
+学生用自己的话解释 → 五维度评分 → 暴露薄弱点 → 推荐下一步问题。
+"""
+
 import streamlit as st
-import time
 from utils.state import init_session_state, go_to
+from services.feynman_service import load_feynman_rubric, evaluate
 
 init_session_state()
 
 st.title("🗣️ 费曼学习法评价")
+st.caption("真正理解一个概念，就是能用自己的话把它讲清楚。")
 
-st.caption("💡 用你自己的话把概念讲清楚——AI 从五个维度评价你是否真正理解")
+# ── 读取 feynman_id ──
+feynman_id = st.session_state.get("current_feynman_id", "F001")
+rubric = load_feynman_rubric(feynman_id)
 
-st.markdown("### 🎯 挑战：向同学解释为什么淬火会提高硬度")
+if rubric is None:
+    st.error(f"未找到费曼评价标准：{feynman_id}")
+    st.stop()
 
-# 多行文本输入框
-feynman_text = st.text_area("请用你自己的话解释：", height=150)
+# ── 题目提示 ──
+st.markdown("### 🎯 挑战")
+st.info(rubric.get("prompt", "请用自己的话解释这个知识点。"))
 
-# 提交按钮
-if st.button("提交评价"):
-    if feynman_text:
-        # 模拟 AI 评分延迟
-        with st.spinner("AI 正在根据概念、因果链和术语进行多维度评分..."):
-            time.sleep(1.5)
+# ── 参考 checklist（可折叠） ──
+with st.expander("📋 评分标准（6 个关键点）"):
+    for item in rubric.get("checklist", []):
+        st.markdown(f"- {item.get('point', '')}")
 
-            st.markdown("### 📊 评价结果")
-            st.markdown("""
-            **总得分：82 / 100**
+# ── 输入区域 ──
+feynman_text = st.text_area(
+    "请用你自己的话解释：",
+    height=150,
+    placeholder="试着像一个老师一样，给没学过材料学的同学讲清楚……",
+)
 
-            ✅ **讲清楚的部分**：你讲清楚了快速冷却和马氏体形成。
-            ❌ **缺失的部分**：还没有讲清楚无扩散相变和晶格畸变。
-
-            **详细维度打分（参考）**：
-            * 概念准确性：25 / 30
-            * 因果链完整性：20 / 30
-            * 术语规范性：12 / 15
-            * 应用迁移能力：15 / 15
-            * 表达清晰度：10 / 10
-            """)
-
-            # 保存评价结果供后续页面（如学习路径推荐）读取
-            st.session_state["last_feynman_result"] = {
-                "score": 82,
-                "covered_points": ["快速冷却", "马氏体形成", "硬度提高"],
-                "missing_points": ["碳原子扩散受限", "晶格畸变", "位错运动受阻"],
-                "suggestion": "请补充说明马氏体为什么会阻碍位错运动，以及这如何导致硬度提高。"
-            }
-    else:
+# ── 提交 ──
+if st.button("提交评价", type="primary", use_container_width=True):
+    if not feynman_text.strip():
         st.warning("请先输入你的解释！")
+    else:
+        with st.spinner("🤖 AI 正在从五个维度评价你的解释..."):
+            result = evaluate(feynman_text, feynman_id)
 
-# 评价结果出来后显示学习路径推荐按钮
-if st.session_state.get("last_feynman_result"):
+        st.session_state["last_feynman_result"] = result
+
+# ── 评价结果展示 ──
+feynman_result = st.session_state.get("last_feynman_result")
+
+if feynman_result:
     st.divider()
-    if st.button("生成个性化学习路径", type="primary"):
-        go_to("learning_path")
+    st.markdown("### 📊 评价结果")
 
-# TODO: 替换为 services/feynman_service.py 的真实调用
-# from services.feynman_service import evaluate
-# result = evaluate(explanation=feynman_text, user_id=st.session_state.user_id)
+    total = feynman_result.get("total_score", 0)
+    dims = feynman_result.get("dimension_scores", {})
+
+    # ── 总分 ──
+    st.markdown(f"## {total} / 100")
+    color = "green" if total >= 80 else ("orange" if total >= 60 else "red")
+    st.progress(total / 100)
+
+    # ── 五维度评分 ──
+    st.markdown("#### 维度评分")
+
+    dim_labels = {
+        "concept_accuracy": ("概念准确性", 18),
+        "causal_completeness": ("因果链完整性", 20),
+        "term_accuracy": ("术语规范性", 14),
+        "clarity": ("表达清晰度", 16),
+        "misconception_control": ("误区控制", 10),
+    }
+
+    for dim_key, (label, max_pts) in dim_labels.items():
+        score = dims.get(dim_key, 0)
+        pct = score / max_pts if max_pts > 0 else 0
+        emoji = "🟢" if pct >= 0.8 else ("🟡" if pct >= 0.5 else "🔴")
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            st.markdown(f"{emoji} **{label}**")
+        with col2:
+            st.progress(pct, f"{score} / {max_pts}")
+
+    # ── 覆盖 / 缺失 ──
+    covered = feynman_result.get("covered_points", [])
+    missing = feynman_result.get("missing_points", [])
+    incorrect = feynman_result.get("incorrect_points", [])
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("**✅ 讲清楚的部分**")
+        if covered:
+            for pt in covered:
+                st.markdown(f"- {pt}")
+        else:
+            st.markdown("（无）")
+    with col_b:
+        st.markdown("**❌ 缺失的部分**")
+        if missing:
+            for pt in missing:
+                st.markdown(f"- {pt}")
+        else:
+            st.markdown("（无）")
+
+    if incorrect:
+        st.markdown("**⚠️ 表述有误的部分**")
+        for pt in incorrect:
+            st.warning(pt)
+
+    # ── 优秀范例 ──
+    with st.expander("📖 参考范例"):
+        example = rubric.get("excellent_example", "")
+        if example:
+            st.markdown(example)
+
+    # ── 推荐下一步问题 ──
+    next_q = feynman_result.get("next_question", "")
+    if next_q:
+        st.info(f"💡 **建议下一步思考**：{next_q}")
+
+    # ── 导航 ──
+    st.divider()
+    st.markdown("### 下一步")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗺️ 生成个性化学习路径", type="primary", use_container_width=True):
+            go_to("learning_path")
+    with col2:
+        if st.button("🔄 重新解释", use_container_width=True):
+            st.session_state.pop("last_feynman_result", None)
+            st.rerun()

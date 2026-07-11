@@ -26,6 +26,8 @@ DEFAULT_STATE = {
     "current_feynman_id": "F001",
 
     # 各阶段最新结果
+    "last_user_question": "",
+    "last_answer": None,
     "last_qa_result": None,
     "last_diagnosis": None,
     "last_socratic_result": None,

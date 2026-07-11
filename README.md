@@ -85,14 +85,14 @@ CaiZhi-Agent/
 │   ├── 7_Debug.py                 # 知识库调试
 │   └── 8_RAG_Debug.py             # RAG 检索调试（✅ 已实现）
 │
-├── services/                      # 业务服务层
+├── services/                      # 业务服务层 ✅ 全部就绪（LLM-ready）
 │   ├── rag_service.py             # ✅ RAG 检索服务封装
-│   ├── qa_service.py              # ✅ 答疑服务（LLM待接入）
-│   ├── diagnosis_service.py       # ✅ 错题诊断服务
-│   ├── socratic_service.py        # stub
-│   ├── feynman_service.py         # stub
+│   ├── qa_service.py              # ✅ 统一答疑入口（answer_question，含约束型 prompt）
+│   ├── diagnosis_service.py       # ✅ 错题诊断（submit_answer，结构化输出）
+│   ├── socratic_service.py        # ✅ 苏格拉底引导（judge_answer，advance/hint/retry/simplify）
+│   ├── feynman_service.py         # ✅ 费曼评价（evaluate，五维度评分）
 │   ├── profile_service.py         # stub
-│   └── recommendation_service.py  # stub
+│   └── recommendation_service.py  # ✅ 学习路径推荐（三源聚合 + 先修排序）
 │
 ├── rag/                           # ✅ RAG 管线（PDF→Markdown→Chunk→向量库→检索）
 │   ├── pdf_parser.py              #   PDF→Markdown（Marker 视觉AI解析）
@@ -218,6 +218,8 @@ streamlit run app.py
 
 ## V1 实现状态
 
+### RAG 管线
+
 | 模块 | 状态 | 说明 |
 |---|---|---|
 | RAG 管线 `rag/` | ✅ 代码就绪 | Marker + 语义分块 + BGE-m3 + 双语检索 |
@@ -229,19 +231,31 @@ streamlit run app.py
 | 英文标题修复 | ✅ 已完成 | `fix_en_headings.py` 修复 OCR 噪音 + 章节升级 |
 | RAG Debug (页 8) | ✅ 已实现 | 术语 + 章节 + 双语结果 + 图表描述 + 图片字段 |
 | RAG 检索服务 | ✅ 已实现 | 术语扩展 → 双语检索 → 合并排序 + 图片透传 |
-| session_state 体系 | ✅ 已统一 | 清理死 key，统一命名，5 页全链路对齐 |
-| 智能答疑 (页 1) | 🔧 框架已有 | Prompt 组装就绪，LLM 调用待接入 |
-| 错题诊断 (页 2) | ✅ 已实现 | 完整错题诊断 UI + 后端 |
-| 苏格拉底引导 (页 3) | 🔧 框架已有 | |
-| 费曼评价 (页 4) | 🔧 框架已有 | |
-| 知识图谱 (页 5) | 🔧 stub | |
-| 学习路径推荐 (页 6) | 🔧 stub | |
-| 调试页面 (页 7) | ✅ 已实现 | 术语表 + 知识图谱数据验证 |
-| 知识图谱 `knowledge_graph.py` | ✅ 已实现 | 8 节点 / 7 边 / 1 因果链 |
-| 术语检索 `terminology.py` | ✅ 已实现 | 双语术语搜索 |
-| 术语扩展 `term_expander.py` | ✅ 已实现 | 查询中英双向术语扩展 |
-| Prompt 构建 | ✅ 已实现 | 双语教材 + 图表 + 术语 + 图谱 |
-| Agent 层 | ❌ 全部 stub | 5 个 Agent 文件待实现 |
+
+### 学习闭环（五页 + 五服务）
+
+| 页面 | Service | V1 引擎 | 说明 |
+|------|---------|---------|------|
+| 1. 智能答疑 | `qa_service` | 规则驱动 | `answer_question()` 组合四种数据源，固定 7 区块输出。LLM prompt 已构建，待接入。 |
+| 2. 错题诊断 | `diagnosis_service` | JSON 映射 | `submit_answer()` 误区定位 + `misconception_id`，统一键名。 |
+| 3. 苏格拉底引导 | `socratic_service` | 关键词匹配 | `judge_answer()` → advance/hint/retry/simplify，S001 链 6 步台阶。 |
+| 4. 费曼评价 | `feynman_service` | Checklist 评分 | `evaluate()` 五维度打分（满分 78），`next_question` 追问。 |
+| 5. 知识图谱 | — | 🔧 stub | 可视化待做 |
+| 6. 学习路径推荐 | `recommendation_service` | 先修关系排序 | 聚合三源薄弱点 → 知识单元 K001-K004 → 拓扑排序。 |
+| 7. 调试页面 | — | ✅ 已实现 | 术语表 + 知识图谱数据验证 |
+
+**学习闭环链路**：`答疑(K001,C001,Q001) → 诊断(Q001→S001) → 苏格拉底(S001→F001) → 费曼(F001评分) → 学习路径(聚合排序) → 回到答疑`
+
+### 其他
+
+| 模块 | 状态 | 说明 |
+|---|---|---|
+| `utils/state.py` | ✅ 已统一 | `last_user_question`, `last_answer`, `last_qa_result`, `last_diagnosis`, `last_socratic_result`, `last_feynman_result`, `last_learning_path` |
+| `knowledge/prompt_builder.py` | ✅ 已实现 | 约束型 Prompt — 四种数据源职责边界明确 |
+| 知识图谱 | ✅ 已实现 | 8 节点 / 7 边 / 1 因果链 C001 |
+| 术语扩展 | ✅ 已实现 | `term_expander` — 查询中英双向匹配 + 因果链节点反查补齐 |
+| Agent 层 (`agents/`) | ❌ 全部 stub | 5 个 Agent 文件待 LLM 接入后实现 |
+| 数据库 (`database/`) | ❌ stub | 学生记录待接入 |
 
 ---
 

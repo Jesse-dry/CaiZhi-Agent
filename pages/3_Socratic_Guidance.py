@@ -1,77 +1,195 @@
-# pages/3_Socratic_Guidance.py
+"""
+页面 3：苏格拉底式引导（Socratic Guidance）
+学习闭环第 3 步：诊断误区 → 苏格拉底引导 → 费曼评价
+
+预定义教学台阶 + 关键词匹配判断回答质量 → 推进/提示/重问。
+"""
+
 import streamlit as st
 from utils.state import init_session_state, go_to
+from services.socratic_service import (
+    load_socratic_chain,
+    get_step,
+    get_total_steps,
+    judge_answer,
+    complete_socratic,
+)
 
 init_session_state()
 
 st.title("🦉 苏格拉底式引导")
+st.caption("不直接给答案，通过层层追问引导你自己推导出结论。")
 
-st.caption("💡 不直接给答案，通过层层追问引导你自己发现答案")
-
-st.markdown("针对你的薄弱知识点：**淬火与硬度的关系**，我们将通过问答来一步步推导。")
-
+# ── 读取上一页传递的 socratic_id ──
 socratic_id = st.session_state.get("current_socratic_id", "S001")
+chain = load_socratic_chain(socratic_id)
 
-# 初始化第一句追问
-if not st.session_state.socratic_history:
-    st.session_state.socratic_history = [
-        {"role": "assistant", "content": "让我们一步步来推导。首先：**淬火最大的工艺特点是什么？**"}
-    ]
+if chain is None:
+    st.error(f"未找到苏格拉底引导链：{socratic_id}")
+    st.stop()
 
+total_steps = get_total_steps(chain)
+
+# ── 初始化状态 ──
+if "socratic_current_step" not in st.session_state:
+    st.session_state["socratic_current_step"] = 1
+if "socratic_attempt_count" not in st.session_state:
+    st.session_state["socratic_attempt_count"] = 0
+if "socratic_all_covered" not in st.session_state:
+    st.session_state["socratic_all_covered"] = []
+if "socratic_all_weak" not in st.session_state:
+    st.session_state["socratic_all_weak"] = []
+if "socratic_completed" not in st.session_state:
+    st.session_state["socratic_completed"] = False
+
+# ── 快捷变量 ──
+current_step_idx = st.session_state["socratic_current_step"]
+attempt_count = st.session_state["socratic_attempt_count"]
+all_covered = st.session_state["socratic_all_covered"]
+all_weak = st.session_state["socratic_all_weak"]
+completed = st.session_state["socratic_completed"]
+
+# ── 进度条 ──
+st.progress((current_step_idx - 1) / total_steps, f"步骤 {current_step_idx} / {total_steps}")
+st.caption(f"📋 {chain.get('title', '')}")
+
+# ═══════════════════════════════════════
 # 渲染对话历史
+# ═══════════════════════════════════════
 for msg in st.session_state.socratic_history:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 接收学生回复
-if user_ans := st.chat_input("输入你的思考..."):
-    # 展示学生发言
-    with st.chat_message("user"):
-        st.markdown(user_ans)
-    st.session_state.socratic_history.append({"role": "user", "content": user_ans})
+# ═══════════════════════════════════════
+# 未完成：显示当前问题 + 接收回答
+# ═══════════════════════════════════════
+if not completed:
+    current_step = get_step(chain, current_step_idx)
 
-    # 根据对话步数给出对应追问（模拟 socratic.json 的递进链）
-    step = sum(1 for m in st.session_state.socratic_history if m["role"] == "assistant")
+    if current_step is None:
+        st.error(f"步骤 {current_step_idx} 不存在")
+        st.stop()
 
-    follow_ups = [
-        "很好！接下来想一想：**冷却速度变快后，碳原子还有足够时间扩散吗？**",
-        "对，碳原子来不及扩散。那么：**奥氏体会倾向于形成什么组织？**",
-        "马氏体确实如此。进一步思考：**马氏体的晶格为什么容易发生畸变？**",
-        "没错，碳过饱和是关键。那么：**晶格畸变会怎样影响位错运动？**",
-        "最后一步：**位错运动受阻后，材料的硬度会怎样变化？**",
-    ]
+    # 如果是新步骤的第一步尝试，显示问题
+    if attempt_count == 0:
+        question_text = f"**第 {current_step_idx} 步**：{current_step.get('question', '')}"
+        if not st.session_state.socratic_history or \
+           st.session_state.socratic_history[-1]["content"] != question_text:
+            with st.chat_message("assistant"):
+                st.markdown(question_text)
+            st.session_state.socratic_history.append({
+                "role": "assistant",
+                "content": question_text,
+            })
 
-    if step <= len(follow_ups):
-        next_q = follow_ups[step - 1]
+    # 接收回答
+    if user_answer := st.chat_input("输入你的思考..."):
+        # 显示学生回答
+        with st.chat_message("user"):
+            st.markdown(user_answer)
+        st.session_state.socratic_history.append({
+            "role": "user",
+            "content": user_answer,
+        })
+
+        # 判断回答质量
+        st.session_state["socratic_attempt_count"] += 1
+        result = judge_answer(
+            step=current_step,
+            student_answer=user_answer,
+            attempt_count=st.session_state["socratic_attempt_count"],
+        )
+
+        # 累积覆盖和薄弱点
+        for pt in result.get("covered_points", []):
+            if pt not in st.session_state["socratic_all_covered"]:
+                st.session_state["socratic_all_covered"].append(pt)
+        for pt in result.get("missing_points", []):
+            if pt not in st.session_state["socratic_all_weak"]:
+                st.session_state["socratic_all_weak"].append(pt)
+
+        # 显示助教反馈
         with st.chat_message("assistant"):
-            st.markdown(next_q)
-        st.session_state.socratic_history.append({"role": "assistant", "content": next_q})
-    else:
-        summary = "*(引导完成！总结：淬火通过快速冷却抑制碳原子扩散，使奥氏体转变为马氏体。马氏体中的碳原子过饱和，引起晶格畸变，阻碍位错运动，因此硬度提高。)*"
-        with st.chat_message("assistant"):
-            st.markdown(summary)
-        st.session_state.socratic_history.append({"role": "assistant", "content": summary})
+            st.markdown(result["response"])
 
-        st.session_state["last_socratic_result"] = {
-            "socratic_id": socratic_id,
-            "completed": True,
-            "summary": "淬火通过快速冷却抑制碳原子扩散，使奥氏体转变为马氏体；马氏体晶格畸变阻碍位错运动，因此硬度提高。"
-        }
-        st.session_state["current_feynman_id"] = "F001"
+            # 如果是 advance 或 simplify，显示质量标签
+            quality = result.get("student_answer_quality", "")
+            action = result.get("action", "")
+            if action == "advance":
+                st.caption(f"✅ 回答质量：{quality} | 推进到下一步")
+            elif action == "simplify":
+                st.caption(f"🔄 回答质量：{quality} | 简化重述")
 
-# 重置按钮
-if st.button("🔄 重新开始"):
-    st.session_state.socratic_history = [
-        {"role": "assistant", "content": "让我们一步步来推导。首先：**淬火最大的工艺特点是什么？**"}
-    ]
-    st.rerun()
+        st.session_state.socratic_history.append({
+            "role": "assistant",
+            "content": result["response"],
+        })
 
-# 引导完成后显示进入费曼评价按钮
-if st.session_state.get("last_socratic_result"):
+        # ── 根据 action 决定下一步 ──
+        if action == "advance":
+            if current_step_idx >= total_steps:
+                # 全部完成
+                st.session_state["socratic_completed"] = True
+                final_result = complete_socratic(
+                    socratic_id=socratic_id,
+                    covered_points=st.session_state["socratic_all_covered"],
+                    weak_points=st.session_state["socratic_all_weak"],
+                )
+                st.session_state["last_socratic_result"] = final_result
+                st.session_state["current_feynman_id"] = "F001"
+            else:
+                st.session_state["socratic_current_step"] += 1
+                st.session_state["socratic_attempt_count"] = 0
+        elif action in ("hint", "retry", "simplify"):
+            # 留在当前步骤，attempt_count 已递增
+            pass
+
+        st.rerun()
+
+# ═══════════════════════════════════════
+# 已完成：展示总结 + 导航按钮
+# ═══════════════════════════════════════
+if completed:
+    last_result = st.session_state.get("last_socratic_result", {})
+
+    st.success("🎉 苏格拉底引导完成！")
+
+    with st.expander("📊 学习总结", expanded=True):
+        summary = last_result.get("summary", "")
+        if summary:
+            st.markdown(f"**核心结论**\n\n{summary}")
+
+        covered = last_result.get("covered_points", [])
+        weak = last_result.get("remaining_weak_points", [])
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**已掌握知识点**")
+            for pt in covered:
+                st.markdown(f"- ✅ {pt}")
+        with col_b:
+            st.markdown("**仍需加强**")
+            for pt in weak:
+                st.markdown(f"- ⚠️ {pt}")
+
     st.divider()
-    if st.button("进入费曼评价", type="primary"):
-        go_to("feynman")
+    st.markdown("### 下一步")
 
-# TODO: 替换为 services/socratic_service.py 的真实调用
-# from services.socratic_service import next_question
-# result = next_question(session_messages=st.session_state.socratic_history, user_id=st.session_state.user_id)
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🎤 进入费曼评价", type="primary", use_container_width=True):
+            go_to("feynman")
+    with col2:
+        if st.button("🗺️ 生成学习路径", use_container_width=True):
+            go_to("learning_path")
+
+# ── 重置按钮 ──
+if st.button("🔄 重新开始"):
+    for key in [
+        "socratic_current_step", "socratic_attempt_count",
+        "socratic_all_covered", "socratic_all_weak",
+        "socratic_completed", "socratic_history",
+        "last_socratic_result",
+    ]:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
