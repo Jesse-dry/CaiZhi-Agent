@@ -25,46 +25,47 @@
 
 ---
 
-## 技术架构
+## 技术架构（四层 + 未来 API/前端）
+
+2026-07-11 重构为四层 clean architecture，为从 Streamlit 迁移到 FastAPI + React/Vue 做好准备。
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        页面展示层 (pages/)                        │
-│   Streamlit 多页面应用：答疑 / 错题诊断 / 苏格拉底引导 /           │
-│   费曼评价 / 知识图谱 / 学习路径推荐 / RAG Debug                   │
-├─────────────────────────────────────────────────────────────────┤
-│                        业务服务层 (services/)                      │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│  │ rag      │ │ 答疑服务  │ │ 诊断服务  │ │ 苏格拉底  │ │ 费曼评价  │ │
-│  │ service  │ │ qa       │ │ diagnosis│ │ socratic │ │ feynman  │ │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
-├─────────────────────────────────────────────────────────────────┤
-│                     RAG 管线 (rag/)                               │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│  │ PDF→MD   │ │ 语义分块  │ │ BGE-m3   │ │ 双语检索  │ │ 图表      │ │
-│  │ Marker   │ │ H1/H2/H3 │ │ 向量化    │ │ +术语扩展 │ │ Caption   │ │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
-├─────────────────────────────────────────────────────────────────┤
-│                        AI 推理层 (agents/)                        │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│  │ 答疑      │ │ 错题诊断  │ │ 苏格拉底  │ │ 费曼      │ │ 图谱推理  │ │
-│  │ Agent    │ │ Agent    │ │ Agent    │ │ Agent    │ │ Agent    │ │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
-├─────────────────────────────────────────────────────────────────┤
-│                       知识增强层 (knowledge/)                      │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│  │ RAG      │ │ 知识图谱  │ │ 术语对齐  │ │ 术语扩展  │ │ Prompt   │ │
-│  │ retriever│ │ graph    │ │ terminology│ │ expander │ │ builder  │ │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
-├─────────────────────────────────────────────────────────────────┤
-│                      数据 & 存储层                                 │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐             │
-│  │ data/    │ │ database/│ │ vector_  │ │ configs/ │             │
-│  │ 教材/题库│ │ 学生记录  │ │ store/   │ │ 模型配置  │             │
-│  │ 知识图谱 │ │          │ │ ChromaDB │ │          │             │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────┘             │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  展示层 pages/ (Streamlit)    │  api/ (FastAPI 未来)         │
+│                               │  frontend/ (React/Vue 未来)   │
+├──────────────────────────────────────────────────────────────┤
+│  服务层 services/             │  工作流层 workflows/          │
+│  用例编排（不 import Streamlit）│  学习闭环状态机 + 守卫条件    │
+├──────────────────────────────────────────────────────────────┤
+│  数据协议 schemas/            │  仓储接口 repositories/       │
+│  Pydantic v2 — 统一请求/响应   │  ABC 抽象（知识库/RAG/会话）  │
+├──────────────────────────────────────────────────────────────┤
+│  基础设施 infrastructure/     │  领域逻辑                     │
+│  ChromaDB / LLM / 文件/会话   │  agents/ rag/ knowledge/      │
+├──────────────────────────────────────────────────────────────┤
+│  数据 data/ database/ vector_store/ configs/                 │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+**当前调用链**：`Streamlit pages → services/workflows → agents/rag/repositories → infrastructure`
+
+**未来调用链**：`React/Vue → FastAPI → services/workflows → agents/rag/repositories → infrastructure`
+
+**关键原则**：`services/`、`workflows/`、`rag/`、`agents/` 不依赖 Streamlit；`LearningSession`（Pydantic）是权威会话模型；`st.session_state` 仅是本地缓存；所有跨层数据使用 `schemas/` Pydantic 模型。
+
+### 状态机 + 守卫条件
+
+教学闭环由 `workflows/learning_loop.py` 后端强制执行：
+
+```
+QA → DIAGNOSIS ─┬─(正确)→ FEYNMAN ─┬─(≥60分)→ RECOMMENDATION → COMPLETED
+                 │                   │
+                 ├─(错误)→ SOCRATIC ←┘─(<60分, 回炉补救)
+                 │                   ↑
+                 └───────────────────┘
+```
+
+即使前端绕过页面顺序发送请求，后端也会拒绝非法状态迁移。
 
 ---
 
@@ -75,73 +76,91 @@ CaiZhi-Agent/
 │
 ├── app.py                         # Streamlit 主入口
 │
-├── pages/                         # 页面展示层 —— 纯 UI，不含业务逻辑
+├── pages/                         # 展示层 —— 纯 UI，不含业务逻辑
 │   ├── 1_Smart_Answering.py       # 智能答疑
 │   ├── 2_Error_Diagnosis.py       # 错题诊断
 │   ├── 3_Socratic_Guidance.py     # 苏格拉底引导
 │   ├── 4_Feynman_Evaluation.py    # 费曼评价
 │   ├── 5_Knowledge_Graph.py       # 知识图谱（stub）
-│   ├── 6_Learning_Path_Recommendation.py  # 学习路径推荐（stub）
+│   ├── 6_Learning_Path_Recommendation.py  # 学习路径推荐
 │   ├── 7_Debug.py                 # 知识库调试
-│   └── 8_RAG_Debug.py             # RAG 检索调试（✅ 已实现）
+│   └── 8_RAG_Debug.py             # RAG 检索调试
 │
-├── services/                      # 业务服务层 ✅ 全部就绪（LLM-ready）
+├── services/                      # 服务层 —— 用例编排，不 import Streamlit
 │   ├── rag_service.py             # ✅ RAG 检索服务封装
-│   ├── qa_service.py              # ✅ 统一答疑入口（answer_question，含约束型 prompt）
-│   ├── diagnosis_service.py       # ✅ 错题诊断（submit_answer，结构化输出）
-│   ├── socratic_service.py        # ✅ 苏格拉底引导（judge_answer，advance/hint/retry/simplify）
-│   ├── feynman_service.py         # ✅ 费曼评价（evaluate，五维度评分）
-│   ├── profile_service.py         # stub
-│   └── recommendation_service.py  # ✅ 学习路径推荐（三源聚合 + 先修排序）
+│   ├── qa_service.py              # ✅ 统一答疑入口
+│   ├── diagnosis_service.py       # ✅ 错题诊断
+│   ├── socratic_service.py        # ✅ 苏格拉底引导
+│   ├── feynman_service.py         # ✅ 费曼评价
+│   └── recommendation_service.py  # ✅ 学习路径推荐
 │
-├── rag/                           # ✅ RAG 管线（PDF→Markdown→Chunk→向量库→检索）
-│   ├── pdf_parser.py              #   PDF→Markdown（Marker 视觉AI解析）
-│   ├── chunker.py                 #   语义分块（MarkdownHeaderTextSplitter）
-│   ├── prepare_chunks.py          #   全流程编排（--pdf-only / --chunk-only）
-│   ├── build_vector_store.py      #   ChromaDB + BGE-m3 向量化
-│   ├── bilingual_retriever.py     #   双语检索 + 术语扩展 + 图片字段透传
+├── schemas/                       # ★ 统一数据协议（Pydantic v2）
+│   ├── common.py                  #   共享枚举和值对象
+│   ├── learning_session.py        #   LearningSession 权威会话模型
+│   ├── qa.py                      #   智能答疑请求/响应
+│   ├── diagnosis.py               #   错题诊断请求/响应
+│   ├── socratic.py                #   苏格拉底引导请求/响应
+│   ├── feynman.py                 #   费曼评价请求/响应
+│   ├── recommendation.py          #   学习路径推荐请求/响应
+│   └── events.py                  #   SSE 事件定义
+│
+├── workflows/                     # ★ 学习闭环状态机（带守卫条件）
+│   ├── state_machine.py           #   通用有限状态机
+│   └── learning_loop.py           #   5 阶段状态机 + 分支守卫
+│
+├── repositories/                  # ★ 数据存取抽象接口（ABC）
+│   ├── knowledge_repo.py          #   知识库接口
+│   ├── rag_repo.py                #   RAG 检索接口
+│   └── session_repo.py            #   会话存储接口
+│
+├── infrastructure/                # ★ 具体实现层
+│   ├── chroma_store.py            #   ChromaDB RAG 实现
+│   ├── llm_client.py              #   LLM 客户端封装（占位）
+│   ├── file_knowledge_repo.py     #   文件知识库实现
+│   ├── memory_session.py          #   内存会话存储
+│   └── sqlite_session.py          #   SQLite 会话存储（占位）
+│
+├── api/                           # ★ FastAPI 占位（未来）
+│   └── main.py
+│
+├── frontend/                      # ★ React/Vue 占位（未来）
+│   └── README.md
+│
+├── rag/                           # ✅ RAG 管线
+│   ├── pdf_parser.py              #   PDF→Markdown（Marker）
+│   ├── chunker.py                 #   语义分块
+│   ├── prepare_chunks.py          #   全流程编排
+│   ├── build_vector_store.py      #   ChromaDB + BGE-m3
+│   ├── bilingual_retriever.py     #   双语检索 + 术语扩展
 │   ├── check_chunks.py            #   Chunk 质量统计
 │   ├── image_captioner.py         #   图表 Caption（Qwen-VL-Max）
-│   ├── fix_metadata.py            #   修复向量库 metadata（免重编码）
-│   └── enrich_images.py           #   图片索引补全（page/nearby_header/caption_status）
+│   ├── fix_metadata.py            #   修复向量库 metadata
+│   └── enrich_images.py           #   图片索引补全
 │
 ├── agents/                        # AI 推理层 —— 全部为 stub
-│   ├── qa_agent.py
-│   ├── mistake_diagnosis_agent.py
-│   ├── socratic_agent.py
-│   ├── feynman_agent.py
-│   └── graph_reasoning_agent.py
 │
 ├── knowledge/                     # 知识增强层
-│   ├── rag_retriever.py           #   检索入口（委托到 services/rag_service）
 │   ├── knowledge_graph.py         # ✅ 知识图谱查询
 │   ├── terminology.py             # ✅ 术语查询
-│   ├── term_expander.py           # ✅ 查询术语扩展（中↔英）
+│   ├── term_expander.py           # ✅ 术语扩展
 │   ├── misconception_mapper.py    # ✅ 错题-误区映射
-│   ├── prompt_builder.py          # ✅ RAG Prompt 组装
-│   ├── retrievers/                # ⚠️ 旧版检索器（已被 rag/ 替代，保留参考）
-│   └── indexing/                  # ⚠️ 旧版索引构建（已被 rag/ 替代，保留参考）
+│   └── prompt_builder.py          # ✅ RAG Prompt 组装
 │
 ├── data/                          # 数据
 │   ├── textbooks/                 #   教材 PDF（不入库）
-│   │   ├── zh/                    #     中文教材
-│   │   └── en/                    #     英文教材
 │   ├── processed/                 #   RAG 产出（不入库）
-│   │   ├── markdown/              #     Marker 输出的 Markdown
-│   │   ├── images/                #     提取的图表
-│   │   └── chunks/                #     语义分块 JSONL
 │   ├── terms.csv                  #   术语表
 │   ├── knowledge_graph.json       #   知识图谱
 │   ├── questions.json             #   题库
 │   ├── socratic.json              #   苏格拉底引导
 │   └── feynman.json               #   费曼评价标准
 │
-├── vector_store/                  # ChromaDB 向量库（不入库，本地生成）
-│
+├── vector_store/                  # ChromaDB 向量库（不入库）
+├── utils/state.py                 # Streamlit 会话适配器
 ├── database/                      # 关系数据库（stub）
 ├── configs/                       # 配置文件
-├── check_headings.py              # 提取 Markdown 标题大纲（质量校验）
-├── fix_en_headings.py              # 修复英文教材标题层级 + OCR 噪音
+├── check_headings.py              # 标题校验工具
+├── fix_en_headings.py             # 英文标题修复工具
 ├── docs/                          # 文档
 │
 ├── requirements.txt
