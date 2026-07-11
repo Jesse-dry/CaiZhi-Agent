@@ -18,6 +18,9 @@ import logging
 from typing import overload
 
 import numpy as np
+from dotenv import load_dotenv
+
+load_dotenv()  # 确保 .env 中的 DASHSCOPE_API_KEY 已加载
 
 logger = logging.getLogger(__name__)
 
