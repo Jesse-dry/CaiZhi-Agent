@@ -13,7 +13,9 @@ File structure:
     socratic.py          -- JudgeAnswerRequest, SocraticStepResult, ...
     feynman.py           -- EvaluateRequest, FeynmanResult, DimensionScores
     recommendation.py    -- GeneratePathRequest, LearningPathResult, ...
-    events.py            -- SSE events
+    events.py            -- SSE events (StreamEvent + EventEmitter)
+	    runs.py              -- Run lifecycle (POST create + GET SSE pattern)
+	    event_sink.py         -- EventSink protocol (unified event output)
 
 Call chain:
     pages / api -> schemas
@@ -97,8 +99,14 @@ from schemas.recommendation import (
     LearningPathResultV1,
 )
 
-# ---- events ----
+# ---- events (new StreamEvent protocol) ----
 from schemas.events import (
+    StreamEvent,
+    EventEmitter,
+    EventTypeStr,
+    EVENT_TYPE_LABELS,
+    generate_run_id,
+    # Deprecated — kept for backward compat
     EventType,
     SSEEvent,
     AnsweringCompleted,
@@ -109,6 +117,23 @@ from schemas.events import (
     LearningPathGenerated,
     SessionReset,
     ErrorEvent,
+)
+
+# ---- event_sink ----
+from schemas.event_sink import (
+    EventSink,
+    NullEventSink,
+)
+
+# ---- runs ----
+from schemas.runs import (
+    RunStatusEnum,
+    RunType,
+    CreateRunRequest,
+    RunCreated,
+    RunStatusResponse,
+    RunListResponse,
+    ReplayInfo,
 )
 
 __all__ = [
@@ -159,7 +184,13 @@ __all__ = [
     "WeakPointDetail",
     "LearningPathResult",
     "LearningPathResultV1",
-    # events
+    # events (new StreamEvent protocol)
+    "StreamEvent",
+    "EventEmitter",
+    "EventTypeStr",
+    "EVENT_TYPE_LABELS",
+    "generate_run_id",
+    # events (deprecated)
     "EventType",
     "SSEEvent",
     "AnsweringCompleted",
@@ -170,4 +201,15 @@ __all__ = [
     "LearningPathGenerated",
     "SessionReset",
     "ErrorEvent",
+    # event_sink
+    "EventSink",
+    "NullEventSink",
+    # runs
+    "RunStatusEnum",
+    "RunType",
+    "CreateRunRequest",
+    "RunCreated",
+    "RunStatusResponse",
+    "RunListResponse",
+    "ReplayInfo",
 ]

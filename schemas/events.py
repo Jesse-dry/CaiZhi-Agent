@@ -1,16 +1,382 @@
 """
-SSE 事件定义
+SSE Stream Event Protocol — unified streaming event schema.
 
-学习闭环中每个阶段完成后发出一个事件。
-workflows 状态机根据事件推进阶段，前端通过 SSE 订阅实时更新。
+Two-tier design:
+  Tier 1 (NEW) — StreamEvent: fine-grained streaming events within a single run.
+      Covers retrieval progress, generation deltas, and workflow transitions.
+      Designed for FastAPI text/event-stream SSE.
+  Tier 2 (DEPRECATED) — SSEEvent: coarse stage-completion events.
+      Kept for backward compatibility; will be removed once all consumers
+      migrate to StreamEvent.
 
-每个事件都有明确的 event 类型（用于 SSE event: 字段），
-以及类型安全的 payload（不再使用泛型 dict）。
+Design principles:
+  1. Every event has event_id, run_id, session_id, monotonic sequence
+  2. Events are grouped by stage (qa / diagnosis / socratic / feynman / recommendation)
+  3. Fine-grained events show retrieval progress, generation progress, and stage changes
+  4. run.completed always carries the full result in payload.result
+  5. Frontend can filter by event type (SSE "event:" field) or by stage (payload.stage)
+
+Usage — service layer:
+    from schemas.events import EventEmitter, StreamEvent
+
+    emitter = EventEmitter(run_id="run_abc123", session_id="session_001", stage="qa")
+
+    # Emit events inside an async generator
+    yield emitter.run_started()
+    yield emitter.retrieval_started(query="淬火是什么意思？")
+    yield emitter.retrieval_source_found(
+        file_name="materials_science.md",
+        page_start=218,
+        chapter="Martensitic Transformations",
+        language="en",
+    )
+    yield emitter.retrieval_completed(source_count=5)
+    yield emitter.generation_started()
+    yield emitter.generation_delta(section="principle", delta="快速冷却使碳原子来不及扩散……")
+    yield emitter.generation_section_completed(section="principle")
+    yield emitter.run_completed(result=qa_result.model_dump())
+
+Usage — FastAPI endpoint:
+    from fastapi.responses import StreamingResponse
+    from api.sse import sse_stream
+
+    @app.get("/api/qa/stream")
+    async def stream_qa(session_id: str, question: str):
+        async def generate():
+            async for event in qa_service.answer_stream(session_id, question):
+                yield event.to_sse()
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+SSE wire format:
+    event: generation.delta
+    id: evt_0014
+    data: {"event_id":"evt_0014","run_id":"run_abc123",...}
+
 """
 
-from datetime import datetime
-from enum import StrEnum
+from __future__ import annotations
+
+import warnings
+from datetime import datetime, UTC
+from typing import Any, Literal
+from uuid import uuid4
+
 from pydantic import BaseModel, Field
+
+from schemas.common import LearningStage
+
+# ═══════════════════════════════════════════════════════════
+# Event type constants
+# ═══════════════════════════════════════════════════════════
+
+#: All valid StreamEvent event type strings (dot notation).
+EventTypeStr = Literal[
+    # Run lifecycle
+    "run.started",
+    "run.completed",
+    "run.failed",
+    # Retrieval phase
+    "retrieval.started",
+    "retrieval.source_found",
+    "retrieval.completed",
+    # Generation phase
+    "generation.started",
+    "generation.delta",
+    "generation.section_completed",
+    # Workflow
+    "workflow.stage_changed",
+]
+
+#: Human-readable labels for each event type (for logging / debug UI).
+EVENT_TYPE_LABELS: dict[str, str] = {
+    "run.started": "Run started",
+    "run.completed": "Run completed",
+    "run.failed": "Run failed",
+    "retrieval.started": "Retrieval started",
+    "retrieval.source_found": "Source found",
+    "retrieval.completed": "Retrieval completed",
+    "generation.started": "Generation started",
+    "generation.delta": "Generation delta",
+    "generation.section_completed": "Section completed",
+    "workflow.stage_changed": "Stage changed",
+}
+
+# ═══════════════════════════════════════════════════════════
+# Helpers
+# ═══════════════════════════════════════════════════════════
+
+def generate_run_id() -> str:
+    """Generate a unique run ID: run_{8 hex chars}."""
+    return f"run_{uuid4().hex[:8]}"
+
+
+# ═══════════════════════════════════════════════════════════
+# StreamEvent — unified streaming event
+# ═══════════════════════════════════════════════════════════
+
+class StreamEvent(BaseModel):
+    """
+    Unified SSE stream event.
+
+    Every event in the system — from retrieval progress to generation deltas
+    to workflow transitions — uses this single schema. The ``event`` field
+    (dot notation) determines the semantic meaning; the ``payload`` carries
+    event-specific data.
+
+    SSE wire format via ``to_sse()``:
+
+        event: {event}
+        id: {event_id}
+        data: {full JSON of the StreamEvent}
+
+    The frontend can:
+      - Filter by SSE ``event:`` field for coarse routing
+      - Parse the JSON ``data:`` for full structured access
+      - Sort by ``sequence`` to reconstruct ordering
+    """
+
+    event_id: str = Field(
+        ...,
+        description="Unique event ID within the run, e.g. 'evt_0008'",
+        examples=["evt_0008", "evt_0014"],
+    )
+    run_id: str = Field(
+        ...,
+        description="Run ID shared by all events in one API call",
+        examples=["run_abc123"],
+    )
+    session_id: str = Field(
+        ...,
+        description="Learning session ID",
+        examples=["session_001"],
+    )
+    sequence: int = Field(
+        ...,
+        description="Monotonic sequence number starting from 0, unique within a run",
+        examples=[8],
+    )
+    event: str = Field(
+        ...,
+        description="Event type in dot notation, e.g. 'generation.delta'",
+        examples=["generation.delta", "retrieval.source_found"],
+    )
+    stage: str = Field(
+        ...,
+        description=(
+            "Learning stage: 'qa' / 'diagnosis' / 'socratic' / 'feynman' / "
+            "'recommendation' / 'system'"
+        ),
+        examples=["qa", "diagnosis"],
+    )
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Event-specific data payload",
+        examples=[{"section": "principle", "delta": "快速冷却使碳原子来不及扩散……"}],
+    )
+
+    def to_sse(self) -> str:
+        """
+        Serialize to SSE protocol format (text/event-stream).
+
+        Returns a string with ``event:``, ``id:``, ``data:`` lines
+        followed by a blank line (SSE frame terminator).
+        """
+        data = self.model_dump_json(exclude_none=True)
+        return f"event: {self.event}\nid: {self.event_id}\ndata: {data}\n\n"
+
+
+# ═══════════════════════════════════════════════════════════
+# EventEmitter — factory for sequenced events
+# ═══════════════════════════════════════════════════════════
+
+class EventEmitter:
+    """
+    Creates StreamEvent instances with auto-incrementing sequence numbers.
+
+    One emitter per run. Pass it through the service layer; each service
+    method calls the appropriate ``emit_*`` method and yields the result.
+
+    Usage::
+
+        emitter = EventEmitter(run_id="run_abc123", session_id="sess_001", stage="qa")
+
+        # Run lifecycle
+        yield emitter.run_started()
+
+        # Retrieval phase
+        yield emitter.retrieval_started(query="淬火是什么？")
+        for source in rag_results:
+            yield emitter.retrieval_source_found(
+                file_name=source.file_name,
+                page_start=source.page_start,
+                chapter=source.chapter,
+                language=source.language,
+                score=source.score,
+            )
+        yield emitter.retrieval_completed(source_count=len(rag_results))
+
+        # Generation phase
+        yield emitter.generation_started()
+        yield emitter.generation_delta(section="principle", delta="快速冷却使碳原子……")
+        yield emitter.generation_section_completed(section="principle")
+
+        # Done
+        yield emitter.run_completed(result=full_result)
+    """
+
+    def __init__(
+        self,
+        run_id: str | None = None,
+        session_id: str = "default",
+        stage: str | LearningStage = "qa",
+    ) -> None:
+        self.run_id = run_id or generate_run_id()
+        self.session_id = session_id
+        self.stage = stage.value if isinstance(stage, LearningStage) else stage
+        self._seq = 0
+
+    # ── internal ──────────────────────────────────────────
+
+    def _next(self, event: str, payload: dict[str, Any] | None = None) -> StreamEvent:
+        """Create the next event with auto-incremented sequence."""
+        seq = self._seq
+        self._seq += 1
+        return StreamEvent(
+            event_id=f"evt_{seq:04d}",
+            run_id=self.run_id,
+            session_id=self.session_id,
+            sequence=seq,
+            event=event,
+            stage=self.stage,
+            payload=payload or {},
+        )
+
+    # ── Run lifecycle ─────────────────────────────────────
+
+    def run_started(self, **extra: Any) -> StreamEvent:
+        """Emit when a run (API call) begins."""
+        return self._next("run.started", extra if extra else None)
+
+    def run_completed(self, result: dict[str, Any]) -> StreamEvent:
+        """
+        Emit when a run finishes successfully.
+
+        MUST include the full structured result in ``payload.result``
+        so the frontend can render without an extra HTTP request.
+        """
+        return self._next("run.completed", {"result": result})
+
+    def run_failed(self, error: str, detail: dict[str, Any] | None = None) -> StreamEvent:
+        """Emit when a run fails with an error."""
+        return self._next("run.failed", {
+            "error": error,
+            "detail": detail or {},
+        })
+
+    # ── Retrieval phase ───────────────────────────────────
+
+    def retrieval_started(self, query: str | None = None) -> StreamEvent:
+        """Emit when RAG retrieval begins."""
+        p: dict[str, Any] = {}
+        if query is not None:
+            p["query"] = query
+        return self._next("retrieval.started", p)
+
+    def retrieval_source_found(
+        self,
+        *,
+        file_name: str,
+        page_start: int | None = None,
+        chapter: str | None = None,
+        language: str = "zh",
+        score: float | None = None,
+        chunk_id: str | None = None,
+        section: str | None = None,
+        **extra: Any,
+    ) -> StreamEvent:
+        """
+        Emit for each relevant source chunk found during retrieval.
+
+        Fires once per source so the frontend can show a live "found sources" list.
+        """
+        p: dict[str, Any] = {
+            "file_name": file_name,
+            "language": language,
+        }
+        if page_start is not None:
+            p["page_start"] = page_start
+        if chapter is not None:
+            p["chapter"] = chapter
+        if section is not None:
+            p["section"] = section
+        if score is not None:
+            p["score"] = score
+        if chunk_id is not None:
+            p["chunk_id"] = chunk_id
+        p.update(extra)
+        return self._next("retrieval.source_found", p)
+
+    def retrieval_completed(self, source_count: int, **extra: Any) -> StreamEvent:
+        """Emit when retrieval phase finishes."""
+        return self._next("retrieval.completed", {
+            "source_count": source_count,
+            **extra,
+        })
+
+    # ── Generation phase ──────────────────────────────────
+
+    def generation_started(self) -> StreamEvent:
+        """Emit when LLM generation begins."""
+        return self._next("generation.started", {})
+
+    def generation_delta(self, section: str, delta: str) -> StreamEvent:
+        """
+        Emit a text delta during generation.
+
+        ``section`` identifies which part of the output is being generated
+        (e.g. 'short_answer', 'principle', 'causal_chain', 'key_terms').
+        ``delta`` is the incremental text — can be token-level or sentence-level.
+        """
+        return self._next("generation.delta", {
+            "section": section,
+            "delta": delta,
+        })
+
+    def generation_section_completed(self, section: str) -> StreamEvent:
+        """Emit when a generation section (short_answer / principle / …) is complete."""
+        return self._next("generation.section_completed", {"section": section})
+
+    # ── Workflow ──────────────────────────────────────────
+
+    def workflow_stage_changed(
+        self,
+        from_stage: str,
+        to_stage: str,
+        reason: str = "",
+    ) -> StreamEvent:
+        """
+        Emit when the learning loop transitions to a new stage.
+
+        Frontend uses this to update the progress indicator and navigate pages.
+        """
+        return self._next("workflow.stage_changed", {
+            "from_stage": from_stage,
+            "to_stage": to_stage,
+            "reason": reason,
+        })
+
+
+# ═══════════════════════════════════════════════════════════
+# Deprecated: Old SSE event types
+# ═══════════════════════════════════════════════════════════
+#
+# These coarse stage-completion events are superseded by StreamEvent.
+# Kept for backward compatibility until all consumers migrate.
+# New code should use StreamEvent + EventEmitter.
+# ═══════════════════════════════════════════════════════════
+
+from enum import StrEnum
+
 from schemas.qa import QAResult
 from schemas.diagnosis import DiagnosisResult
 from schemas.socratic import SocraticStepResult, SocraticCompleteResult
@@ -19,7 +385,7 @@ from schemas.recommendation import LearningPathResult
 
 
 class EventType(StrEnum):
-    """SSE 事件类型 — 对应 event: 字段"""
+    """DEPRECATED: Use StreamEvent.event string instead."""
     ANSWERING_COMPLETED = "answering_completed"
     DIAGNOSIS_COMPLETED = "diagnosis_completed"
     SOCRATIC_STEP_COMPLETED = "socratic_step_completed"
@@ -30,28 +396,23 @@ class EventType(StrEnum):
     ERROR = "error"
 
 
-# ═══════════════════════════════════════════════════════════
-# SSE 事件基类
-# ═══════════════════════════════════════════════════════════
-
 class SSEEvent(BaseModel):
     """
-    SSE 事件基类。
+    DEPRECATED: Use StreamEvent instead.
 
-    所有推送到前端的 SSE 事件共享此结构。
-    event 字段用于 SSE 协议的 event: 行，
-    data 字段序列化为 JSON 放入 data: 行。
+    Coarse stage-completion event. Does not support fine-grained
+    streaming (retrieval progress, generation deltas).
     """
-    event: EventType = Field(..., description="SSE 事件类型")
-    session_id: str = Field(..., description="会话 ID")
+    event: EventType = Field(..., description="SSE event type")
+    session_id: str = Field(..., description="Session ID")
     timestamp: str = Field(
-        default_factory=lambda: datetime.utcnow().isoformat() + "Z",
-        description="事件时间戳（UTC ISO 8601）",
+        default_factory=lambda: datetime.now(UTC).isoformat(),
+        description="Event timestamp (UTC ISO 8601)",
     )
-    payload: dict = Field(default_factory=dict, description="事件携带的数据")
+    payload: dict[str, Any] = Field(default_factory=dict, description="Event data")
 
     def to_sse(self) -> str:
-        """序列化为 SSE 协议格式"""
+        """Serialize to SSE protocol format."""
         import json
         lines = [
             f"event: {self.event.value}",
@@ -62,12 +423,8 @@ class SSEEvent(BaseModel):
         return "\n".join(lines)
 
 
-# ═══════════════════════════════════════════════════════════
-# 具体事件类型
-# ═══════════════════════════════════════════════════════════
-
 class AnsweringCompleted(SSEEvent):
-    """智能答疑完成 → 可进入错题诊断"""
+    """DEPRECATED: Use StreamEvent(event='workflow.stage_changed', …) instead."""
     event: EventType = Field(default=EventType.ANSWERING_COMPLETED)
 
     @classmethod
@@ -84,7 +441,7 @@ class AnsweringCompleted(SSEEvent):
 
 
 class DiagnosisCompleted(SSEEvent):
-    """错题诊断完成 → 可进入苏格拉底引导"""
+    """DEPRECATED: Use StreamEvent(event='workflow.stage_changed', …) instead."""
     event: EventType = Field(default=EventType.DIAGNOSIS_COMPLETED)
 
     @classmethod
@@ -102,7 +459,7 @@ class DiagnosisCompleted(SSEEvent):
 
 
 class SocraticStepCompleted(SSEEvent):
-    """苏格拉底单步完成（中间事件，前端更新进度条）"""
+    """DEPRECATED: Use StreamEvent(event='generation.delta', …) instead."""
     event: EventType = Field(default=EventType.SOCRATIC_STEP_COMPLETED)
 
     @classmethod
@@ -120,7 +477,7 @@ class SocraticStepCompleted(SSEEvent):
 
 
 class SocraticCompleted(SSEEvent):
-    """苏格拉底引导全部完成 → 可进入费曼评价"""
+    """DEPRECATED: Use StreamEvent(event='workflow.stage_changed', …) instead."""
     event: EventType = Field(default=EventType.SOCRATIC_COMPLETED)
 
     @classmethod
@@ -136,7 +493,7 @@ class SocraticCompleted(SSEEvent):
 
 
 class FeynmanCompleted(SSEEvent):
-    """费曼评价完成 → 可进入学习路径推荐"""
+    """DEPRECATED: Use StreamEvent(event='workflow.stage_changed', …) instead."""
     event: EventType = Field(default=EventType.FEYNMAN_COMPLETED)
 
     @classmethod
@@ -154,7 +511,7 @@ class FeynmanCompleted(SSEEvent):
 
 
 class LearningPathGenerated(SSEEvent):
-    """学习路径生成完成（学习闭环终点）"""
+    """DEPRECATED: Use StreamEvent(event='workflow.stage_changed', …) instead."""
     event: EventType = Field(default=EventType.LEARNING_PATH_GENERATED)
 
     @classmethod
@@ -171,16 +528,16 @@ class LearningPathGenerated(SSEEvent):
 
 
 class SessionReset(SSEEvent):
-    """会话重置事件"""
+    """DEPRECATED: Use StreamEvent(event='workflow.stage_changed', to_stage='qa') instead."""
     event: EventType = Field(default=EventType.SESSION_RESET)
 
 
 class ErrorEvent(SSEEvent):
-    """错误事件"""
+    """DEPRECATED: Use StreamEvent(event='run.failed', …) instead."""
     event: EventType = Field(default=EventType.ERROR)
 
     @classmethod
-    def from_error(cls, session_id: str, error: str, detail: dict | None = None) -> "ErrorEvent":
+    def from_error(cls, session_id: str, error: str, detail: dict[str, Any] | None = None) -> "ErrorEvent":
         return cls(
             session_id=session_id,
             payload={"error": error, "detail": detail or {}},

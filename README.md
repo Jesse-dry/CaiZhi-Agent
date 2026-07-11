@@ -25,23 +25,25 @@
 
 ---
 
-## 技术架构（四层 + 未来 API/前端）
+## 技术架构（四层 + API + 前端规划）
 
-2026-07-11 重构为四层 clean architecture，为从 Streamlit 迁移到 FastAPI + React/Vue 做好准备。
+2026-07-11 完成四层架构重构，并设计了完整的 SSE 流式事件协议、EventSink 统一事件出口、REST API 边界和前端两层状态架构。
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  展示层 pages/ (Streamlit)    │  api/ (FastAPI 未来)         │
-│                               │  frontend/ (React/Vue 未来)   │
+│  展示层 pages/ (Streamlit)    │  api/ (FastAPI)              │
+│                               │  frontend/ (React/Vue 规划)   │
 ├──────────────────────────────────────────────────────────────┤
 │  服务层 services/             │  工作流层 workflows/          │
-│  用例编排（不 import Streamlit）│  学习闭环状态机 + 守卫条件    │
+│  类化 + 构造器注入 + EventSink │  学习闭环状态机 + 守卫条件    │
 ├──────────────────────────────────────────────────────────────┤
 │  数据协议 schemas/            │  仓储接口 repositories/       │
-│  Pydantic v2 — 统一请求/响应   │  ABC 抽象（知识库/RAG/会话）  │
+│  StreamEvent / EventSink /    │  ABC 抽象（知识库/RAG/会话）  │
+│  Pydantic v2 统一请求/响应    │                              │
 ├──────────────────────────────────────────────────────────────┤
 │  基础设施 infrastructure/     │  领域逻辑                     │
 │  ChromaDB / LLM / 文件/会话   │  agents/ rag/ knowledge/      │
+│  / EventSink 实现             │                              │
 ├──────────────────────────────────────────────────────────────┤
 │  数据 data/ database/ vector_store/ configs/                 │
 └──────────────────────────────────────────────────────────────┘
@@ -51,7 +53,47 @@
 
 **未来调用链**：`React/Vue → FastAPI → services/workflows → agents/rag/repositories → infrastructure`
 
-**关键原则**：`services/`、`workflows/`、`rag/`、`agents/` 不依赖 Streamlit；`LearningSession`（Pydantic）是权威会话模型；`st.session_state` 仅是本地缓存；所有跨层数据使用 `schemas/` Pydantic 模型。
+**关键原则**：
+- `services/`、`workflows/`、`rag/`、`agents/` 不依赖 Streamlit 或 FastAPI
+- 业务逻辑通过构造器注入依赖（`RAGRepository`, `KnowledgeRepository`, `LLMClient`），与传输层彻底解耦
+- `EventSink` 协议统一事件出口 — Service 不知道下游是 Streamlit 占位符还是 SSE 队列
+- `LearningSession`（Pydantic）是权威会话模型；`st.session_state` 仅是本地缓存
+- 所有跨层数据使用 `schemas/` Pydantic 模型
+- API 围绕**资源和操作**设计，不按页面名称映射
+
+### SSE 流式事件协议
+
+2026-07-11 设计。细粒度流式事件，一次 API 调用内推送检索进度和生成增量：
+
+```
+run.started → retrieval.started → retrieval.source_found×N → retrieval.completed
+→ generation.started → generation.delta×N → generation.section_completed×N → run.completed
+```
+
+**StreamEvent** 统一事件模型：`event_id` (evt_0008)、`run_id` (run_abc123)、`sequence` (单调递增)、`event` (点号分隔类型)、`stage`、`payload`。支持 SSE `Last-Event-ID` 断线重连。
+
+**EventSink 协议**：`async emit(event: StreamEvent) → None`。四种实现 — `NullEventSink`（静默）、`StreamlitEventSink`（st.empty 渲染）、`RunStoreEventSink`（SSE 缓冲）、`QueueEventSink`（背压控制）。
+
+### REST API 设计
+
+围绕资源和操作设计，不按页面映射：
+
+| 端点 | 说明 | 状态 |
+|------|------|------|
+| `POST /api/v1/sessions/` | 创建会话 | ✅ |
+| `GET /api/v1/sessions/{id}` | 获取会话 | ✅ |
+| `DELETE /api/v1/sessions/{id}` | 删除会话 | ✅ |
+| `POST /api/v1/sessions/{id}/qa-runs` | 创建答疑任务 → 返回 run_id + events_url | ✅ |
+| `GET /api/v1/runs/{id}/events` | SSE 流式事件 | ✅ |
+| `GET /api/v1/runs/{id}` | 获取完整结果 | ✅ |
+| `DELETE /api/v1/runs/{id}` | 删除 run | ✅ |
+| `POST /api/v1/sessions/{id}/diagnoses` | 提交错题诊断 | 🔧 占位 |
+| `POST /api/v1/sessions/{id}/socratic/answers` | 提交苏格拉底回答 | 🔧 占位 |
+| `POST /api/v1/sessions/{id}/feynman-evaluations` | 提交费曼评价 | 🔧 占位 |
+| `GET /api/v1/sessions/{id}/recommendations` | 获取学习路径 | 🔧 占位 |
+| `GET /api/v1/sessions/{id}/knowledge-graph` | 获取知识图谱 | ✅ |
+
+**模式**：`POST 创建任务 → GET SSE 订阅`—— 副作用和订阅分离，支持断线重连。
 
 ### 状态机 + 守卫条件
 
@@ -86,13 +128,13 @@ CaiZhi-Agent/
 │   ├── 7_Debug.py                 # 知识库调试
 │   └── 8_RAG_Debug.py             # RAG 检索调试
 │
-├── services/                      # 服务层 —— 用例编排，不 import Streamlit
+├── services/                      # 服务层 —— 类化 + 构造器注入 + EventSink
 │   ├── rag_service.py             # ✅ RAG 检索服务封装
-│   ├── qa_service.py              # ✅ 统一答疑入口
-│   ├── diagnosis_service.py       # ✅ 错题诊断
-│   ├── socratic_service.py        # ✅ 苏格拉底引导
-│   ├── feynman_service.py         # ✅ 费曼评价
-│   └── recommendation_service.py  # ✅ 学习路径推荐
+│   ├── qa_service.py              # ✅ QAService 类（DI + async + event_sink）
+│   ├── diagnosis_service.py       # ✅ 错题诊断（待类化）
+│   ├── socratic_service.py        # ✅ 苏格拉底引导（待类化）
+│   ├── feynman_service.py         # ✅ 费曼评价（待类化）
+│   └── recommendation_service.py  # ✅ 学习路径推荐（待类化）
 │
 ├── schemas/                       # ★ 统一数据协议（Pydantic v2）
 │   ├── common.py                  #   共享枚举和值对象
@@ -102,7 +144,9 @@ CaiZhi-Agent/
 │   ├── socratic.py                #   苏格拉底引导请求/响应
 │   ├── feynman.py                 #   费曼评价请求/响应
 │   ├── recommendation.py          #   学习路径推荐请求/响应
-│   └── events.py                  #   SSE 事件定义
+│   ├── events.py                  #   StreamEvent + EventEmitter（SSE 事件）
+│   ├── event_sink.py              #   EventSink 协议 + NullEventSink
+│   └── runs.py                    #   Run 生命周期模型（CreateRunRequest 等）
 │
 ├── workflows/                     # ★ 学习闭环状态机（带守卫条件）
 │   ├── state_machine.py           #   通用有限状态机
@@ -114,17 +158,30 @@ CaiZhi-Agent/
 │   └── session_repo.py            #   会话存储接口
 │
 ├── infrastructure/                # ★ 具体实现层
-│   ├── chroma_store.py            #   ChromaDB RAG 实现
+│   ├── chroma_store.py            #   ChromaDB RAG 实现（RAGRepository）
 │   ├── llm_client.py              #   LLM 客户端封装（占位）
-│   ├── file_knowledge_repo.py     #   文件知识库实现
-│   ├── memory_session.py          #   内存会话存储
-│   └── sqlite_session.py          #   SQLite 会话存储（占位）
+│   ├── file_knowledge_repo.py     #   文件知识库实现（KnowledgeRepository）
+│   ├── memory_session.py          #   内存会话存储（SessionRepository）
+│   ├── sqlite_session.py          #   SQLite 会话存储（占位）
+│   └── event_sinks.py             #   EventSink 具体实现（Streamlit/RunStore/Queue/Callback）
 │
-├── api/                           # ★ FastAPI 占位（未来）
-│   └── main.py
+├── api/                           # ★ FastAPI — 资源路由 + DI + SSE
+│   ├── main.py                    #   FastAPI 应用入口 + 路由注册
+│   ├── dependencies.py            #   Depends() 依赖注入容器
+│   ├── sse.py                     #   SSE StreamingResponse 工具
+│   ├── run_store.py               #   内存 Run 存储 + 事件缓冲 + 重连
+│   └── routers/                   #   APIRouter 模块（一个资源一个文件）
+│       ├── sessions.py            #   CRUD /sessions
+│       ├── qa.py                  #   POST /sessions/{id}/qa-runs
+│       ├── diagnosis.py           #   POST /sessions/{id}/diagnoses
+│       ├── socratic.py            #   POST /sessions/{id}/socratic/answers
+│       ├── feynman.py             #   POST /sessions/{id}/feynman-evaluations
+│       ├── recommendations.py     #   GET  /sessions/{id}/recommendations
+│       ├── knowledge_graph.py     #   GET  /sessions/{id}/knowledge-graph
+│       └── runs.py                #   GET/DELETE /runs/{id} + SSE events
 │
-├── frontend/                      # ★ React/Vue 占位（未来）
-│   └── README.md
+├── frontend/                      # ★ React/Vue 规划（两层状态架构）
+│   └── README.md                  #   技术栈 + store 设计 + SSE 消费模式
 │
 ├── rag/                           # ✅ RAG 管线
 │   ├── pdf_parser.py              #   PDF→Markdown（Marker）
