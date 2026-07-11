@@ -1,18 +1,21 @@
 """
 双语检索器：中文 + 英文教材向量库联合检索。
 
-- BGE-m3 embedding
+- 主 embedding：DashScope text-embedding-v4 API（不占本地内存）
+- 备用 embedding：BAAI/bge-m3 本地模型（网络故障时自动 fallback）
 - 自动术语扩展（中→英、英→中）
 - 惰性 PersistentClient：同一时间只保持一个客户端连接，避免 Windows 文件锁冲突
 """
 
 import json
+import logging
 from pathlib import Path
 
 import chromadb
-from sentence_transformers import SentenceTransformer
 
 from knowledge.term_expander import expand_query_with_terms
+
+logger = logging.getLogger(__name__)
 
 MODEL_NAME = "BAAI/bge-m3"
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,6 +25,12 @@ VECTOR_DIR = BASE_DIR / "vector_store"
 class BilingualRetriever:
     """
     双语教材检索器。
+
+    Embedding 策略：
+    1. 优先使用 DashScope text-embedding-v4 API（轻量、零内存）
+    2. API 不可用时自动 fallback 到本地 BGE-M3 模型
+    3. 本地模型也惰性加载——只有 fallback 时才占内存
+
     惰性 PersistentClient：每次查询时打开单个客户端，用完即释放。
 
     用法:
@@ -39,16 +48,21 @@ class BilingualRetriever:
         images_collection_name: str = "materials_images",
         model_name: str = MODEL_NAME,
     ):
-        self.model = SentenceTransformer(model_name)
+        self._model_name = model_name
+        self._local_model = None          # 惰性加载，仅 fallback 时使用
+        self._dashscope_embedder = None    # 惰性加载
+        self._dashscope_failed = False     # 一旦 API 失败就不再重试（当前会话）
 
-        # 只存路径和集合名，不提前打开客户端
-        # 注意：ChromaDB Rust 后端对含中文的绝对路径有 HNSW bug，统一用相对路径
+        # ChromaDB Rust HNSW 引擎不支持含中文的绝对路径。
+        # 默认放到 C:\chroma_data\（纯 ASCII），可通过 CHROMA_DATA_DIR 覆盖。
+        import os as _os
+        _chroma_root = _os.environ.get("CHROMA_DATA_DIR", "C:/chroma_data")
         if zh_db_path is None:
-            zh_db_path = "vector_store/v2_zh"
+            zh_db_path = f"{_chroma_root}/v2_zh"
         if en_db_path is None:
-            en_db_path = "vector_store/v2_en"
+            en_db_path = f"{_chroma_root}/v2_en"
         if images_db_path is None:
-            images_db_path = "vector_store/v2_images"
+            images_db_path = f"{_chroma_root}/v2_images"
 
         self._db_paths = {
             "zh": zh_db_path,
@@ -61,6 +75,44 @@ class BilingualRetriever:
             "images": images_collection_name,
         }
 
+    # ── Embedding 后端（惰性 + fallback）─────────────────────
+
+    @property
+    def _embedder(self):
+        """
+        获取当前可用的 embedding 编码器。
+
+        优先级：DashScope API → 本地 BGE-M3
+        惰性初始化：只有实际使用时才加载模型/创建客户端。
+        """
+        # 先尝试 DashScope API
+        if not self._dashscope_failed:
+            if self._dashscope_embedder is None:
+                try:
+                    from rag.dashscope_embedder import DashScopeEmbedder
+                    self._dashscope_embedder = DashScopeEmbedder()
+                except Exception as e:
+                    logger.warning("DashScope embedder 初始化失败: %s", e)
+                    self._dashscope_failed = True
+            if self._dashscope_embedder is not None:
+                return self._dashscope_embedder
+
+        # Fallback 到本地 BGE-M3
+        if self._local_model is None:
+            logger.info("加载本地 embedding 模型: %s", self._model_name)
+            from sentence_transformers import SentenceTransformer
+            self._local_model = SentenceTransformer(self._model_name)
+        return self._local_model
+
+    def _encode_query(self, query: str) -> list[float]:
+        """编码查询文本为向量，自动处理 API / 本地区别。"""
+        model = self._embedder
+        result = model.encode(query, normalize_embeddings=True)
+        # API 返回 list[float]，本地模型返回 numpy array
+        if hasattr(result, "tolist"):
+            return result.tolist()
+        return result
+
     def _get_collection(self, key: str):
         """惰性获取单个 collection——打开 client → 取 collection → 返回。
         不持有 client 引用，让 GC 自动回收，避免 Windows 多客户端文件锁冲突。
@@ -71,9 +123,7 @@ class BilingualRetriever:
         return client.get_collection(name)
 
     def _query_collection(self, collection, query: str, top_k: int = 5) -> list[dict]:
-        query_embedding = self.model.encode(
-            [query], normalize_embeddings=True
-        ).tolist()[0]
+        query_embedding = self._encode_query(query)
 
         results = collection.query(
             query_embeddings=[query_embedding],

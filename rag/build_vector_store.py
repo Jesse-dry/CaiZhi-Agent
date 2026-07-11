@@ -1,24 +1,36 @@
 """
 构建 ChromaDB 向量库。
 
-- Embedding 模型：BAAI/bge-m3
-- 将文本 chunks 和图片 caption chunks 统一入库
+Embedding 后端:
+  - dashscope (推荐): 阿里云百炼 text-embedding-v4 API，不占本地内存
+  - local (默认):    BAAI/bge-m3 本地模型
 
 用法:
-    python -m rag.build_vector_store
+    python -m rag.build_vector_store                        # 本地 BGE-M3
+    python -m rag.build_vector_store --backend dashscope    # DashScope API
+    python -m rag.build_vector_store --backend local        # 本地模型
 """
 
+import argparse
 import json
+import os
 from pathlib import Path
 
 import chromadb
-from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
 from tqdm import tqdm
+
+load_dotenv()  # 加载 .env 中的 DASHSCOPE_API_KEY
 
 MODEL_NAME = "BAAI/bge-m3"
 BASE_DIR = Path(__file__).resolve().parent.parent
-VECTOR_DIR = BASE_DIR / "vector_store"
+# ChromaDB Rust HNSW 不支持中文路径，默认放到 C:\chroma_data\
+CHROMA_ROOT = Path(os.environ.get("CHROMA_DATA_DIR", "C:/chroma_data"))
+VECTOR_DIR = CHROMA_ROOT
 CHUNKS_DIR = BASE_DIR / "data" / "processed" / "chunks"
+
+# 支持的 embedding 后端
+BACKENDS = ("local", "dashscope")
 
 
 def load_jsonl(path: str) -> list[dict]:
@@ -30,12 +42,24 @@ def load_jsonl(path: str) -> list[dict]:
     return records
 
 
+def _create_embedder(backend: str):
+    """创建 embedding 编码器。"""
+    if backend == "dashscope":
+        from rag.dashscope_embedder import DashScopeEmbedder
+        print("[Build] Using DashScope text-embedding-v4 API")
+        return DashScopeEmbedder()
+    else:
+        from sentence_transformers import SentenceTransformer
+        print(f"[Build] Loading local model: {MODEL_NAME}")
+        return SentenceTransformer(MODEL_NAME)
+
+
 def build_chroma_db(
     chunks_path: str,
     collection_name: str,
     db_path: str = None,
-    model_name: str = MODEL_NAME,
-    batch_size: int = 32,
+    backend: str = "local",
+    batch_size: int = 5,   # DashScope API 长文本限制
 ):
     chunks = load_jsonl(chunks_path)
 
@@ -49,8 +73,11 @@ def build_chroma_db(
     db_path = Path(db_path)
     db_path.mkdir(parents=True, exist_ok=True)
 
-    print(f"[Build] Loading model: {model_name}")
-    model = SentenceTransformer(model_name)
+    # 选择 embedding 后端
+    model = _create_embedder(backend)
+
+    # 判断是否需要归一化（API 和本地模型处理方法不同）
+    normalize = backend == "local"  # BGE-M3 需要显式归一化; DashScope 在 wrapper 里已处理
 
     client = chromadb.PersistentClient(path=str(db_path))
 
@@ -89,7 +116,14 @@ def build_chroma_db(
             }
             metadatas.append(meta)
 
-        embeddings = model.encode(texts, normalize_embeddings=True).tolist()
+        # DashScope API 和本地模型使用相同的 encode() 接口
+        if isinstance(texts, list) and len(texts) > 0:
+            embeddings = model.encode(texts, normalize_embeddings=normalize)
+            # API 返回 list[list[float]]，本地返回 numpy array
+            if hasattr(embeddings, "tolist"):
+                embeddings = embeddings.tolist()
+        else:
+            embeddings = []
 
         collection.upsert(
             ids=ids,
@@ -103,36 +137,47 @@ def build_chroma_db(
 
 
 def main():
-    # 中文文本 chunks
-    zh_path = CHUNKS_DIR / "zh_chunks.jsonl"
-    if zh_path.exists():
-        build_chroma_db(
-            chunks_path=str(zh_path),
-            collection_name="materials_zh",
-            db_path=str(VECTOR_DIR / "v2_zh"),
-        )
-    else:
-        print(f"[Build] Not found: {zh_path}")
+    parser = argparse.ArgumentParser(
+        description="构建 ChromaDB 向量库",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  python -m rag.build_vector_store                        # 本地 BGE-M3（默认）
+  python -m rag.build_vector_store --backend dashscope    # DashScope API（推荐）
+  python -m rag.build_vector_store --backend local        # 本地模型
+  python -m rag.build_vector_store --collection zh        # 只构建中文
+        """,
+    )
+    parser.add_argument(
+        "--backend", choices=BACKENDS, default="local",
+        help="Embedding 后端: local (BGE-M3) 或 dashscope (API)",
+    )
+    parser.add_argument(
+        "--collection", choices=("zh", "en", "images", "all"),
+        default="all", help="只构建指定集合（默认: all）",
+    )
+    args = parser.parse_args()
 
-    # 英文文本 chunks
-    en_path = CHUNKS_DIR / "en_chunks.jsonl"
-    if en_path.exists():
-        build_chroma_db(
-            chunks_path=str(en_path),
-            collection_name="materials_en",
-            db_path=str(VECTOR_DIR / "v2_en"),
-        )
-    else:
-        print(f"[Build] Not found: {en_path}")
+    def build(path_name, coll_name, db_name):
+        p = CHUNKS_DIR / path_name
+        if p.exists():
+            build_chroma_db(
+                chunks_path=str(p),
+                collection_name=coll_name,
+                db_path=str(VECTOR_DIR / db_name),
+                backend=args.backend,
+            )
+        else:
+            print(f"[Build] Not found: {p}")
 
-    # 图片 caption chunks（如果有）
-    img_path = CHUNKS_DIR / "image_captions.jsonl"
-    if img_path.exists():
-        build_chroma_db(
-            chunks_path=str(img_path),
-            collection_name="materials_images",
-            db_path=str(VECTOR_DIR / "v2_images"),
-        )
+    if args.collection in ("zh", "all"):
+        build("zh_chunks.jsonl", "materials_zh", "v2_zh")
+
+    if args.collection in ("en", "all"):
+        build("en_chunks.jsonl", "materials_en", "v2_en")
+
+    if args.collection in ("images", "all"):
+        build("image_captions.jsonl", "materials_images", "v2_images")
 
 
 if __name__ == "__main__":

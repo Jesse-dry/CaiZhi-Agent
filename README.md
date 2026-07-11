@@ -261,10 +261,10 @@ ANTHROPIC_API_KEY=sk-ant-...
 - `data/textbooks/zh/` — 中文教材
 - `data/textbooks/en/` — 英文教材
 
-### 4. 运行 RAG 管线（⚠️ 需 8GB+ RAM，建议在服务器执行）
+### 4. 运行 RAG 管线
 
 ```bash
-# Step 1: PDF → Markdown（先人工检查 Markdown 质量）
+# Step 1: PDF → Markdown（⚠️ 需 8GB+ RAM，建议在服务器执行）
 python -m rag.prepare_chunks --pdf-only
 
 # 检查 Markdown 质量 —— 用 check_headings.py 提取大纲
@@ -278,8 +278,10 @@ python -m rag.prepare_chunks --chunk-only
 python -m rag.check_chunks
 # 健康指标：空chunk=0，平均长度 500-1500 字符，最大<6000，metadata缺失=0
 
-# Step 4: 构建向量库
-python -m rag.build_vector_store
+# Step 4: 构建向量库（推荐 DashScope API，零本地内存）
+python -m rag.build_vector_store --backend dashscope
+# 或使用本地 BGE-M3 模型：
+# python -m rag.build_vector_store --backend local
 ```
 
 ### 5. 启动应用
@@ -348,11 +350,17 @@ streamlit run app.py
 
 ## RAG 技术方案
 
+> **2026-07-11 更新**：Embedding 已从本地 BGE-M3 迁移至 **DashScope text-embedding-v4 API**。
+> - 不再加载 2GB 本地模型，Python 进程内存从 ~2GB 降至 ~70MB
+> - 向量库存储位置从 `vector_store/` 改为 `C:\chroma_data\`（ChromaDB Rust HNSW 不支持中文路径）
+> - 查询时 DashScope API 优先，网络故障自动 fallback 到本地 BGE-M3
+> - 配置：`.env` 中 `DASHSCOPE_API_KEY`（已有），可选 `CHROMA_DATA_DIR` 自定义存储路径
+
 | 环节 | 技术选型 | 说明 |
 |---|---|---|
 | PDF 解析 | **Marker** (surya OCR) | 视觉 AI 解析，支持双栏排版/公式→LaTeX/表格→Markdown/图片提取 |
 | 文本分块 | **MarkdownHeaderTextSplitter** | 按 H1/H2/H3 语义切分，保留章节 metadata |
-| Embedding | **BAAI/bge-m3** | 多语言、8192 token、学术专业词汇理解强 |
+| Embedding | **DashScope text-embedding-v4**（API） / BGE-m3（fallback） | 1024 维，多语言，API 调用零本地内存，BGE-m3 作为离线 fallback |
 | 向量数据库 | **ChromaDB** | 轻量级，本地持久化 |
 | 术语扩展 | terms.csv 中英双向匹配 | 查询中自动追加对应翻译 |
 | 图表处理 | Claude Vision API（Phase 2） | 为相图/TTT曲线等生成文字描述，存入向量库 |
@@ -367,7 +375,7 @@ streamlit run app.py
 | 大语言模型 | Claude API / GPT-4o / 开源模型（Qwen、DeepSeek） |
 | RAG 框架 | 自建管线（rag/）+ LangChain（分块） |
 | 向量数据库 | ChromaDB |
-| Embedding | BGE-m3 |
+| Embedding | DashScope text-embedding-v4（API）/ BGE-m3（fallback） |
 | PDF 解析 | Marker (surya OCR) |
 | 知识图谱 | NetworkX + JSON |
 | 前端 | Streamlit |
