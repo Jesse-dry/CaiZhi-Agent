@@ -3,14 +3,16 @@
 
 POST /api/v1/sessions/{session_id}/diagnoses
     提交答案进行错题诊断 → 返回 DiagnosisResult
+
+复用 services/diagnosis_service.py — 与 Streamlit 页面 2_Error_Diagnosis.py 同一套逻辑。
 """
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from schemas.diagnosis import DiagnosisResult
+from services.diagnosis_service import submit_answer, get_question_for_page, get_all_questions
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +25,38 @@ class SubmitDiagnosisRequest(BaseModel):
     selected_option: str = Field(..., description="学生选择的选项", min_length=1, max_length=1)
 
 
+@router.get(
+    "/questions/{question_id}",
+    summary="获取题目详情",
+    description="返回题目文本和选项（不含答案），供前端展示。",
+)
+async def get_question(question_id: str):
+    """获取单道题目（展示用，不含答案）"""
+    question = get_question_for_page(question_id)
+    if question is None:
+        raise HTTPException(status_code=404, detail=f"Question {question_id} not found")
+    return question
+
+
+@router.get(
+    "/questions",
+    summary="获取全部题目列表",
+    description="返回题库中所有题目的摘要列表。",
+)
+async def list_questions():
+    """获取全部题目列表"""
+    return get_all_questions()
+
+
 @router.post(
     "/sessions/{session_id}/diagnoses",
-    response_model=DiagnosisResult,
     status_code=201,
+    summary="提交错题诊断",
+    description="""
+提交答案进行错题诊断，返回误区定位、缺失知识点、补救路径。
+
+与 Streamlit 页面 2_Error_Diagnosis.py 调用同一函数 submit_answer()。
+""",
 )
 async def submit_diagnosis(
     session_id: str,
@@ -35,12 +65,15 @@ async def submit_diagnosis(
     """
     提交答案进行错题诊断。
 
-    TODO: 接入 DiagnosisService + KnowledgeRepository.diagnose_answer()
-          当前占位返回。
+    内部直接调用 services.diagnosis_service.submit_answer()，
+    与 Streamlit 页面共享同一套诊断逻辑。
     """
-    # TODO: service = get_diagnosis_service()
-    # TODO: result = await service.diagnose(session_id, body.question_id, body.selected_option)
-    raise HTTPException(
-        status_code=501,
-        detail="Diagnosis service not yet implemented. Use Streamlit pages/ for now.",
-    )
+    result = submit_answer(body.question_id, body.selected_option)
+
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Question {body.question_id} not found or diagnosis failed",
+        )
+
+    return result
