@@ -25,9 +25,9 @@
 
 ---
 
-## 技术架构（四层 + API + 前端规划）
+## 技术架构（四层 + 双入口复用 + API + 前端规划）
 
-2026-07-11 完成四层架构重构，并设计了完整的 SSE 流式事件协议、EventSink 统一事件出口、REST API 边界和前端两层状态架构。
+2026-07-11 完成四层架构重构，2026-07-25 实现 Streamlit / FastAPI 双入口复用同一套 `services/` 业务逻辑，并建立自动评测基线。
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -84,14 +84,20 @@ run.started → retrieval.started → retrieval.source_found×N → retrieval.co
 | `GET /api/v1/sessions/{id}` | 获取会话 | ✅ |
 | `DELETE /api/v1/sessions/{id}` | 删除会话 | ✅ |
 | `POST /api/v1/sessions/{id}/qa-runs` | 创建答疑任务 → 返回 run_id + events_url | ✅ |
-| `GET /api/v1/runs/{id}/events` | SSE 流式事件 | ✅ |
+| `GET /api/v1/runs/{id}/events` | SSE 流式事件（支持 Last-Event-ID 重连） | ✅ |
 | `GET /api/v1/runs/{id}` | 获取完整结果 | ✅ |
 | `DELETE /api/v1/runs/{id}` | 删除 run | ✅ |
-| `POST /api/v1/sessions/{id}/diagnoses` | 提交错题诊断 | 🔧 占位 |
-| `POST /api/v1/sessions/{id}/socratic/answers` | 提交苏格拉底回答 | 🔧 占位 |
-| `POST /api/v1/sessions/{id}/feynman-evaluations` | 提交费曼评价 | 🔧 占位 |
-| `GET /api/v1/sessions/{id}/recommendations` | 获取学习路径 | 🔧 占位 |
+| `POST /api/v1/sessions/{id}/diagnoses` | 提交错题诊断 → `diagnosis_service.submit_answer()` | ✅ |
+| `POST /api/v1/sessions/{id}/socratic/answers` | 提交苏格拉底回答 → `socratic_service.judge_answer()` | ✅ |
+| `POST /api/v1/sessions/{id}/feynman-evaluations` | 提交费曼评价 → `feynman_service.evaluate()` | ✅ |
+| `POST /api/v1/sessions/{id}/recommendations` | 获取学习路径 → `recommendation_service.generate_learning_path()` | ✅ |
 | `GET /api/v1/sessions/{id}/knowledge-graph` | 获取知识图谱 | ✅ |
+| `GET /api/v1/questions/{id}` | 获取题目详情 | ✅ |
+| `GET /api/v1/socratic-chains/{id}` | 获取苏格拉底引导链 | ✅ |
+| `GET /api/v1/feynman-rubrics/{id}` | 获取费曼评价标准 | ✅ |
+| `GET /api/v1/knowledge-units` | 获取知识单元及先修关系 | ✅ |
+
+> **双入口复用**：所有业务端点直接调用 `services/` 中的函数，与 Streamlit 页面走同一代码路径，零重复实现。
 
 **模式**：`POST 创建任务 → GET SSE 订阅`—— 副作用和订阅分离，支持断线重连。
 
@@ -180,6 +186,12 @@ CaiZhi-Agent/
 │       ├── knowledge_graph.py     #   GET  /sessions/{id}/knowledge-graph
 │       └── runs.py                #   GET/DELETE /runs/{id} + SSE events
 │
+├── evaluation/                     # ★ 自动评测基线（7 项核心指标）
+│   ├── __init__.py                  #   导出
+│   ├── test_cases.py                #   从 data/*.json 加载 ground truth
+│   ├── evaluator.py                 #   Evaluator 类 + 7 个 _eval_*() 方法
+│   └── __main__.py                  #   CLI: python -m evaluation [--json] [--metric X]
+│
 ├── frontend/                      # ★ React/Vue 规划（两层状态架构）
 │   └── README.md                  #   技术栈 + store 设计 + SSE 消费模式
 │
@@ -226,6 +238,39 @@ CaiZhi-Agent/
 ├── CLAUDE.md                      # Claude Code 项目指南
 └── README.md
 ```
+
+---
+
+## 自动评测基线
+
+`python -m evaluation` 一键输出 7 项核心指标，纯规则驱动，不依赖 LLM。
+
+```
+===============================================================
+          材智 Agent 自动评测基线报告
+===============================================================
+  #  指标                     得分       说明
+  ---------------------------------------------------------------
+  1  双语检索指标                  53.2%   ZH=58% EN=48% 关键词命中率近似
+  2  回答关键点覆盖率                 0.0%   V1 占位文本为空（LLM 待接入）
+  3  因果链完整度                   3.0%   仅 C001 存在，C002-C010 缺失
+  4  误区诊断准确率                100.0%   10 道题 40 个测试点全部通过
+  5  苏格拉底引导匹配率               88.9%   S001 的 16/18 步骤判定正确
+  6  费曼评价一致性                 44.0%   单调性 6/10，维度映射错配
+  7  学习路径规则正确率               82.0%   先修合规 5/5，等级判定 2/5
+  ---------------------------------------------------------------
+     综合得分                    51.6%
+===============================================================
+```
+
+```bash
+python -m evaluation                 # 终端表格
+python -m evaluation --json          # JSON 输出（CI 集成）
+python -m evaluation --metric X      # 单指标（retrieval/diagnosis/feynman/...）
+python -m evaluation --list          # 列出所有指标
+```
+
+测试数据基于 `data/qa_cases.json`（10 个 QA case，含 ground truth）和 `data/questions.json`（10 道自测题，40 个诊断测试点）。
 
 ---
 
@@ -332,6 +377,8 @@ streamlit run app.py
 | `knowledge/prompt_builder.py` | ✅ 已实现 | 约束型 Prompt — 四种数据源职责边界明确 |
 | 知识图谱 | ✅ 已实现 | 8 节点 / 7 边 / 1 因果链 C001 |
 | 术语扩展 | ✅ 已实现 | `term_expander` — 查询中英双向匹配 + 因果链节点反查补齐 |
+| FastAPI 双入口 | ✅ 已实现 | Streamlit + FastAPI 共享同一 `services/` 层，零重复实现 |
+| 自动评测基线 | ✅ 已实现 | `python -m evaluation` 一键输出 7 项指标 |
 | Agent 层 (`agents/`) | ❌ 全部 stub | 5 个 Agent 文件待 LLM 接入后实现 |
 | 数据库 (`database/`) | ❌ stub | 学生记录待接入 |
 
