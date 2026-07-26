@@ -163,7 +163,8 @@ CaiZhi-Agent/
 │   ├── 5_Knowledge_Graph.py       # 知识图谱（stub）
 │   ├── 6_Learning_Path_Recommendation.py  # 学习路径推荐
 │   ├── 7_Debug.py                 # 知识库调试
-│   └── 8_RAG_Debug.py             # RAG 检索调试
+│   ├── 8_RAG_Debug.py             # RAG 检索调试
+│   └── 9_Dataset_Review.py         # 数据集审核（候选列表 + 证据面板 + 批准/拒绝）
 │
 ├── services/                      # 服务层 —— 统一 ServiceResult[T] 返回 + 类化 DI
 │   ├── rag_service.py             # ✅ RAG 检索服务封装
@@ -172,6 +173,7 @@ CaiZhi-Agent/
 │   ├── socratic_service.py        # ✅ judge_answer()/complete_socratic() → ServiceResult
 │   ├── feynman_service.py         # ✅ evaluate() → ServiceResult[FeynmanResult]
 │   └── recommendation_service.py  # ✅ generate_learning_path() → ServiceResult[LearningPathResult]
+│   └── dataset_expansion_service.py  # ✅ 数据扩充管线编排（生成/校验/发布/迭代）
 │
 ├── schemas/                       # ★ 统一数据协议（Pydantic v2）
 │   ├── common.py                  #   共享枚举和值对象
@@ -183,7 +185,11 @@ CaiZhi-Agent/
 │   ├── recommendation.py          #   学习路径推荐请求/响应
 │   ├── events.py                  #   StreamEvent + EventEmitter（SSE 事件）
 │   ├── event_sink.py              #   EventSink 协议 + NullEventSink
-│   └── runs.py                    #   Run 生命周期模型（CreateRunRequest 等）
+│   ├── runs.py                    #   Run 生命周期模型（CreateRunRequest 等）
+│   ├── dataset_item.py             #   数据集条目（QA/苏格拉底/费曼 + 生命周期）
+│   ├── generation_blueprint.py     #   生成蓝图 + 证据包 + 扩充目标
+│   ├── validation_report.py        #   校验报告 + 6 维度质量评分
+│   └── dataset_review.py           #   审核记录 + 发布请求 + 版本管理
 │
 ├── workflows/                     # ★ 学习闭环状态机（带守卫条件）
 │   ├── state_machine.py           #   通用有限状态机
@@ -192,7 +198,8 @@ CaiZhi-Agent/
 ├── repositories/                  # ★ 数据存取抽象接口（ABC）
 │   ├── knowledge_repo.py          #   知识库接口
 │   ├── rag_repo.py                #   RAG 检索接口
-│   └── session_repo.py            #   会话存储接口
+│   ├── session_repo.py            #   会话存储接口
+│   └── dataset_repo.py             #   数据集仓库接口
 │
 ├── infrastructure/                # ★ 具体实现层
 │   ├── chroma_store.py            #   ChromaDB RAG 实现（RAGRepository）
@@ -200,7 +207,9 @@ CaiZhi-Agent/
 │   ├── file_knowledge_repo.py     #   文件知识库实现（KnowledgeRepository）
 │   ├── memory_session.py          #   内存会话存储（SessionRepository）
 │   ├── sqlite_session.py          #   SQLite 会话存储（占位）
-│   └── event_sinks.py             #   EventSink 具体实现（Streamlit/RunStore/Queue/Callback）
+│   ├── event_sinks.py             #   EventSink 具体实现（Streamlit/RunStore/Queue/Callback）
+│   ├── jsonl_dataset_repo.py       #   JSONL 数据集仓库实现
+│   └── dataset_version_store.py    #   数据集版本管理
 │
 ├── api/                           # ★ FastAPI — 资源路由 + DI + SSE
 │   ├── main.py                    #   FastAPI 应用入口 + 路由注册
@@ -237,7 +246,9 @@ CaiZhi-Agent/
 │   ├── fix_metadata.py            #   修复向量库 metadata
 │   └── enrich_images.py           #   图片索引补全
 │
-├── agents/                        # AI 推理层 —— 全部为 stub
+├── agents/                        # AI 推理层
+│   ├── dataset_generator_agent.py  #   数据集生成 Agent（有证据约束）
+│   └── dataset_critic_agent.py     #   数据集审查 Agent（独立于 Generator）
 │
 ├── knowledge/                     # 知识增强层
 │   ├── knowledge_graph.py         # ✅ 知识图谱查询
@@ -246,6 +257,20 @@ CaiZhi-Agent/
 │   ├── misconception_mapper.py    # ✅ 错题-误区映射
 │   └── prompt_builder.py          # ✅ RAG Prompt 组装
 │
+├── validators/                    # 确定性校验器（不依赖 LLM）
+│   ├── schema_validator.py         #   Pydantic schema + 字段约束
+│   ├── evidence_validator.py       #   source_refs 在 ChromaDB 中真实存在
+│   ├── graph_validator.py          #   graph_path 与 KG 边关系一致
+│   ├── terminology_validator.py    #   术语在 terms.csv 中
+│   └── duplicate_validator.py      #   三层去重
+│
+├── scripts/                       # CLI 脚本
+│   ├── expand_qa_dataset.py
+│   ├── expand_socratic_dataset.py
+│   ├── expand_feynman_dataset.py
+│   ├── run_validation.py
+│   └── publish_dataset.py
+│
 ├── data/                          # 数据
 │   ├── textbooks/                 #   教材 PDF（不入库）
 │   ├── processed/                 #   RAG 产出（不入库）
@@ -253,7 +278,12 @@ CaiZhi-Agent/
 │   ├── knowledge_graph.json       #   知识图谱
 │   ├── questions.json             #   题库
 │   ├── socratic.json              #   苏格拉底引导
-│   └── feynman.json               #   费曼评价标准
+│   ├── feynman.json               #   费曼评价标准
+│   ├── candidates/                 #   候选数据（JSONL，本地生成不入库）
+│   ├── reviewed/                   #   已审核数据
+│   ├── rejected/                   #   已拒绝数据
+│   ├── published/                  #   正式发布数据集（带版本号）
+│   └── eval_gold/                  #   黄金评测集（仅人工创建，不入库）
 │
 ├── vector_store/                  # ChromaDB 向量库（不入库）
 ├── utils/state.py                 # Streamlit 会话适配器
@@ -302,6 +332,105 @@ python -m evaluation --list          # 列出所有指标
 ```
 
 测试数据基于 `data/qa_cases.json`（10 个 QA case，含 ground truth）和 `data/questions.json`（10 道自测题，40 个诊断测试点）。
+
+---
+
+## 数据生产与审核系统（2026-07-27 新增）
+
+现有题库、苏格拉底链、费曼标准各约 10 条，需扩充到可支撑实际教学的规模。数据生产管线遵循 **有证据约束的自动扩充 + 人工审核** 流程。
+
+### 总体管线
+
+```
+知识图谱节点/因果链
+  → 构建 EvidencePackage（教材 chunks + KG nodes + 术语 + 已有数据）
+  → Generator 生成候选 → Critic 审查
+  → 确定性自动校验（schema / evidence / graph / term / dedup）
+  → 质量评分（6 维度，满分 100）
+  → 人工审核（Streamlit 页面）
+  → 发布到正式数据集
+```
+
+### 四类扩充数据
+
+| 类别 | 说明 | 关键约束 |
+|------|------|----------|
+| **QA 题目** | 6 种题型（定义/因果/比较/条件/反向推理/应用迁移）+ 4 选项 + 误区诊断 | 每题带 source_refs（教材 chunk_id）和 graph_path（KG 节点路径） |
+| **分级学生答案** | 每题 5-6 档（完全错误 → 部分正确 → 术语对逻辑错 → 基本正确 → 高质量 → 含迁移应用） | 用于测试诊断 Agent / 苏格拉底分支 / 费曼评分稳定性 |
+| **苏格拉底引导链** | 有分支的教学状态图（正确→下一步, 部分正确→提示, 错误→补救分支） | 每步对应一个 KG 节点，不直接泄露答案 |
+| **费曼评价数据** | 任务标准（mandatory_points + forbidden_claims + checklist）+ 5 档学生回答 | 用于测试费曼 Agent 评分一致性和反馈准确性 |
+
+### 数据生命周期
+
+```
+candidate → auto_validated → needs_review → approved → published → deprecated
+                             ↓
+                          rejected（保留用于去重参考）
+```
+
+每条数据保留完整溯源：`created_by` / `generator_prompt_version` / `critic_model` / `reviewer` / `dataset_version`。
+
+### 质量评分（6 维度）
+
+| 维度 | 权重 | 说明 |
+|------|------|------|
+| 教材证据支持度 | 30 | source_refs 能否支撑核心陈述 |
+| 知识图谱一致性 | 20 | graph_path 节点与边关系是否正确 |
+| 答案唯一性/任务清晰度 | 15 | 正确答案是否唯一、无歧义 |
+| 教学与诊断价值 | 15 | 是否有助于学习或发现误区 |
+| 与现有数据差异性 | 10 | 是否与已有题目/任务重复 |
+| 语言与术语规范 | 10 | 术语是否符合 terms.csv |
+
+发布门禁：<70 拒绝 / 70-84 重点审核 / ≥85 普通审核。存在事实错误或图谱冲突 → 直接拒绝。
+
+### 使用方式
+
+```bash
+# 生成 QA 数据（含分级学生答案）
+python scripts/expand_qa_dataset.py --knowledge-ids K_QUENCHING,K_MARTENSITE --count 20
+
+# 生成苏格拉底引导链
+python scripts/expand_socratic_dataset.py --chain-id C001 --count 5
+
+# 生成费曼评价数据
+python scripts/expand_feynman_dataset.py --knowledge-ids K_QUENCHING --count 5
+
+# 运行自动校验
+python scripts/run_validation.py --type all
+
+# 人工审核（Streamlit）
+streamlit run app.py  # → 导航到 9_Dataset_Review
+
+# 发布到正式数据集
+python scripts/publish_dataset.py --type qa --approved-only --version 2026.08.1
+```
+
+### 黄金评测集隔离
+
+`data/eval_gold/` 中的评测数据仅由教师人工创建，**永不让生成器 Agent 看见**，防止数据泄漏和评测分数虚高。
+
+### 新增目录
+
+```
+schemas/
+  dataset_item.py / generation_blueprint.py / validation_report.py / dataset_review.py
+validators/          # 5 个确定性校验器（不依赖 LLM）
+agents/
+  dataset_generator_agent.py  # Generator（DeepSeek，批量生成）
+  dataset_critic_agent.py     # Critic（独立审查，不参与生成）
+services/
+  dataset_expansion_service.py  # 管线编排服务
+repositories/
+  dataset_repo.py              # 数据集仓库 ABC
+infrastructure/
+  jsonl_dataset_repo.py        # JSONL 文件实现
+  dataset_version_store.py     # 版本管理
+pages/
+  9_Dataset_Review.py          # Streamlit 人工审核页面
+scripts/                       # CLI 脚本
+data/
+  candidates/ / reviewed/ / rejected/ / published/ / eval_gold/
+```
 
 ---
 

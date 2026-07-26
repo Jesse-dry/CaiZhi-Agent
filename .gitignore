@@ -33,6 +33,18 @@ C:/chroma_data/
 # Marker 模型缓存
 ~/AppData/Local/datalab/
 
+# 数据生产管线 — 候选/审核/发布数据（本地生成，不入库）
+data/candidates/*.jsonl
+data/reviewed/*.jsonl
+data/rejected/*.jsonl
+data/published/v*/
+data/review_log.jsonl
+
+# 黄金评测集（仅人工创建，不入库防止泄漏到生成器）
+data/eval_gold/*.json
+data/eval_gold/*.jsonl
+!data/eval_gold/.gitkeep
+
 # OS 系统生成文件
 .DS_Store
 Thumbs.db
