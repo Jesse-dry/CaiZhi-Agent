@@ -45,7 +45,9 @@ async def get_recommendations_default(session_id: str):
         socratic_result=None,
         feynman_result=None,
     )
-    return result
+    if result.success and result.result:
+        return result.result
+    return result  # fallback
 
 
 @router.post(
@@ -75,6 +77,8 @@ async def get_recommendations(
         feynman_result=body.feynman_result,
     )
 
+    if result.success and result.result:
+        return result.result
     return result
 
 

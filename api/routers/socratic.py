@@ -104,7 +104,13 @@ async def submit_socratic_answer(
         )
 
     # 调用同一判定函数（与 Streamlit 复用）
-    result = judge_answer(step, body.student_answer, body.attempt_count)
+    sr = judge_answer(step, body.student_answer, body.attempt_count)
+
+    if not sr.success or sr.result is None:
+        error_msg = sr.errors[0].message if sr.errors else "判定失败"
+        raise HTTPException(status_code=422, detail=error_msg)
+
+    result = sr.result.model_dump()
 
     # 补充链级信息
     total_steps = get_total_steps(chain)
@@ -135,5 +141,10 @@ async def finish_socratic(
     if chain is None:
         raise HTTPException(status_code=404, detail=f"Socratic chain {body.socratic_id} not found")
 
-    result = complete_socratic(body.socratic_id, body.covered_points, body.weak_points)
-    return result
+    sr = complete_socratic(body.socratic_id, body.covered_points, body.weak_points)
+
+    if not sr.success or sr.result is None:
+        error_msg = sr.errors[0].message if sr.errors else "完成失败"
+        raise HTTPException(status_code=422, detail=error_msg)
+
+    return sr.result

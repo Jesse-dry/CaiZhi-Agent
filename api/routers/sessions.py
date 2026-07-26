@@ -39,7 +39,7 @@ async def create_session(
     """创建新的学习会话，返回初始状态。"""
     session = create_default_session(
         session_id=body.user_id,  # V1: session_id == user_id
-        user_id=body.user_id,
+        student_id=body.user_id,
     )
     if body.knowledge_id:
         session.current_knowledge_id = body.knowledge_id

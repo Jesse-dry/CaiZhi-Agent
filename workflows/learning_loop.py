@@ -246,10 +246,10 @@ class LearningLoopMachine:
         else:
             raise TypeError(f"Expected LearningSession or dict, got {type(session)}")
 
-        sm = create_learning_loop_machine(d.get("user_id") or "student_test_01")
+        sm = create_learning_loop_machine(d.get("student_id") or d.get("user_id") or "student_test_01")
         sm.current_state = d.get("current_stage", "qa")
         sm.context.update({
-            "user_id": d.get("user_id", "student_test_01"),
+            "user_id": d.get("student_id") or d.get("user_id", "student_test_01"),
             "current_knowledge_id": d.get("current_knowledge_id"),
             "current_chain_id": d.get("current_chain_id"),
             "current_question_id": d.get("current_question_id"),

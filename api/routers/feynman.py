@@ -106,6 +106,10 @@ async def submit_feynman_evaluation(
         raise HTTPException(status_code=404, detail=f"Feynman rubric {body.feynman_id} not found")
 
     # 调用同一评价函数（与 Streamlit 复用）
-    result = evaluate(body.explanation, body.feynman_id)
+    sr = evaluate(body.explanation, body.feynman_id)
 
-    return result
+    if not sr.success or sr.result is None:
+        error_msg = sr.errors[0].message if sr.errors else "评价失败"
+        raise HTTPException(status_code=422, detail=error_msg)
+
+    return sr.result

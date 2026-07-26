@@ -66,14 +66,15 @@ async def submit_diagnosis(
     提交答案进行错题诊断。
 
     内部直接调用 services.diagnosis_service.submit_answer()，
-    与 Streamlit 页面共享同一套诊断逻辑。
+    与 Streamlit 页面共享同一套诊断逻辑。返回类型化 Pydantic model。
     """
-    result = submit_answer(body.question_id, body.selected_option)
+    sr = submit_answer(body.question_id, body.selected_option)
 
-    if not result:
+    if not sr.success or sr.result is None:
+        error_msg = sr.errors[0].message if sr.errors else "诊断失败"
         raise HTTPException(
             status_code=404,
-            detail=f"Question {body.question_id} not found or diagnosis failed",
+            detail=error_msg,
         )
 
-    return result
+    return sr.result

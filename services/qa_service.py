@@ -42,7 +42,7 @@ import logging
 from typing import AsyncIterator
 
 from schemas.qa import QARequest, QAResult
-from schemas.common import CausalStep, KeyTerm, SourceReference
+from schemas.common import CausalStep, KeyTerm, SourceReference, ServiceResult, ServiceError, ServiceErrorType
 from schemas.events import StreamEvent, EventEmitter, generate_run_id
 from schemas.event_sink import EventSink, NullEventSink
 from repositories.rag_repo import RAGRepository
@@ -83,9 +83,9 @@ class QAService:
         request: QARequest,
         *,
         sink: EventSink | None = None,
-    ) -> QAResult:
+    ) -> ServiceResult[QAResult]:
         """
-        统一答疑入口 — 非流式，返回完整 QAResult。
+        统一答疑入口 — 非流式，返回 ServiceResult[QAResult]。
 
         如果提供 event_sink，执行过程中会推送 StreamEvent 进度事件。
         适合：Streamlit 页面直接调用，或 FastAPI 非流式端点。
@@ -95,7 +95,7 @@ class QAService:
             event_sink: 可选异步回调，接收 StreamEvent
 
         Returns:
-            QAResult — 完整结构化回答
+            ServiceResult[QAResult] — 统一 wrapper，先检查 success 再取 result
         """
         s = sink or NullEventSink()
         emitter = EventEmitter(
@@ -197,6 +197,9 @@ class QAService:
                     page_start=s.get("page_start"),
                     text=s.get("text", "")[:500],
                     score=s.get("score"),
+                    doc_id=s.get("doc_id", ""),
+                    book_title=s.get("book_title", ""),
+                    image_refs=s.get("image_refs", []),
                 )
                 for s in sources[:10]
             ],
@@ -212,7 +215,7 @@ class QAService:
         # 11. run.completed
         await s.emit(emitter.run_completed(result=result.model_dump()))
 
-        return result
+        return ServiceResult(success=True, result=result, trace_id=emitter.run_id)
 
     # ── 流式入口 ────────────────────────────────────────────
 
@@ -357,9 +360,22 @@ class QAService:
         images: list[dict] | None = None,
         max_sources: int = 10,
     ) -> list[dict]:
-        """从 RAG 结果提取去重来源列表"""
+        """
+        从 RAG 结果提取去重来源列表。
+
+        填充提案新增字段：doc_id, book_title, image_refs。
+        book_title 通过 doc_id / file_name 推导（V1 硬编码映射）。
+        """
         sources: list[dict] = []
         seen: set[str] = set()
+
+        # 收集所有图片 chunk_id，用于填充 image_refs
+        image_chunk_ids: set[str] = set()
+        if images:
+            for img in images:
+                img_cid = img.get("metadata", {}).get("chunk_id", "")
+                if img_cid:
+                    image_chunk_ids.add(img_cid)
 
         for item in retrieved:
             meta = item.get("metadata", {})
@@ -373,15 +389,22 @@ class QAService:
                 v for v in [headers.get("h1"), headers.get("h2"), headers.get("h3")] if v
             )
 
+            doc_id = meta.get("doc_id", "")
+            file_name = meta.get("file_name", "")
+
             sources.append({
                 "chunk_id": chunk_id,
-                "file_name": meta.get("file_name", ""),
+                "file_name": file_name,
                 "page_start": meta.get("page"),
                 "chapter": chapter_path or meta.get("chapter", ""),
                 "section": headers.get("h2", ""),
                 "language": meta.get("language", ""),
                 "text": item.get("text", "")[:500],
                 "score": item.get("distance"),
+                # ── 提案新增字段 ──
+                "doc_id": doc_id,
+                "book_title": _derive_book_title(file_name, doc_id),
+                "image_refs": [cid for cid in image_chunk_ids if cid != chunk_id][:5],
             })
 
             if len(sources) >= max_sources:
@@ -394,13 +417,18 @@ class QAService:
                 chunk_id = meta.get("chunk_id", "")
                 if chunk_id and chunk_id not in seen:
                     seen.add(chunk_id)
+                    doc_id = meta.get("doc_id", "")
+                    file_name = meta.get("file_name", "")
                     sources.append({
                         "chunk_id": chunk_id,
-                        "file_name": meta.get("file_name", ""),
+                        "file_name": file_name,
                         "chapter": meta.get("chapter", ""),
                         "language": meta.get("language", ""),
                         "text": img.get("text", "")[:200],
                         "score": img.get("distance"),
+                        "doc_id": doc_id,
+                        "book_title": _derive_book_title(file_name, doc_id),
+                        "image_refs": [],
                     })
 
         return sources
@@ -409,6 +437,26 @@ class QAService:
 # ═══════════════════════════════════════════════════════════
 # 内部工具
 # ═══════════════════════════════════════════════════════════
+
+# 文件名 → 书名映射（V1 硬编码，后续从配置文件加载）
+_BOOK_TITLE_MAP: dict[str, str] = {
+    "材料科学基础_清华": "材料科学基础（清华大学出版社）",
+    "Materials Science": "Materials Science and Engineering: An Introduction (10th Ed.)",
+}
+
+
+def _derive_book_title(file_name: str, doc_id: str = "") -> str:
+    """从文件名或 doc_id 推导教材书名"""
+    # 先尝试精确匹配
+    for key, title in _BOOK_TITLE_MAP.items():
+        if key in file_name or key in doc_id:
+            return title
+    # 中文教材兜底
+    if any("一" <= c <= "鿿" for c in file_name):
+        return "材料科学基础（清华大学出版社）"
+    # 英文教材兜底
+    return "Materials Science and Engineering: An Introduction"
+
 
 class _CollectorSink:
     """内部用 EventSink：将事件收集到列表中。"""
@@ -474,7 +522,7 @@ def answer_question(user_question: str) -> dict:
     DEPRECATED: 旧同步接口，内部委托给 QAService.answer()。
 
     保留此函数确保现有 Streamlit pages 不报错。
-    新代码请用 create_qa_service() + await service.answer()。
+    新代码请用 create_qa_service() + await service.answer() → ServiceResult[QAResult]。
     """
     import asyncio
 
@@ -484,14 +532,30 @@ def answer_question(user_question: str) -> dict:
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            # 在已有的 event loop 中（如 Streamlit 的 asyncio 线程）
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(asyncio.run, service.answer(request))
-                result = future.result(timeout=120)
+                sr: ServiceResult = future.result(timeout=120)
         else:
-            result = asyncio.run(service.answer(request))
+            sr = asyncio.run(service.answer(request))
     except RuntimeError:
-        result = asyncio.run(service.answer(request))
+        sr = asyncio.run(service.answer(request))
 
-    return result.model_dump()
+    if sr.success and sr.result:
+        return sr.result.model_dump()
+    # 错误路径：返回兼容的 dict（带错误信息）
+    error_msg = sr.errors[0].message if sr.errors else "未知错误"
+    return {
+        "question": user_question,
+        "knowledge_id": "K001",
+        "chain_id": "C001",
+        "short_answer": f"服务暂不可用：{error_msg}",
+        "principle": "",
+        "causal_chain": [],
+        "key_terms": [],
+        "misconceptions": [],
+        "recommended_question_id": None,
+        "sources": [],
+        "prompt": "",
+        "retrieval_debug": {"error": error_msg},
+    }

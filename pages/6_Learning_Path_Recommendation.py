@@ -2,33 +2,45 @@
 页面 6：学习路径推荐（Learning Path Recommendation）
 学习闭环第 5 步：费曼评价 → 学习路径 → 回到答疑形成闭环
 
-聚合错题诊断 + 苏格拉底引导 + 费曼评价的薄弱点 → 知识单元映射 → 先修排序。
+V2 (Phase 3)：使用 typed LearningSession 替代 st.session_state flat keys。
 """
 
 import streamlit as st
-from utils.state import init_session_state, go_to
-from services.recommendation_service import generate_learning_path, KNOWLEDGE_UNITS
+from utils.state import init_session_state, get_session, save_session, go_to
+from services.recommendation_service import generate_learning_path_legacy as generate_learning_path, KNOWLEDGE_UNITS
+from schemas.recommendation import LearningPathResult
 
 init_session_state()
 
 st.title("🧭 个性化学习路径")
 
-# ── 读取三个来源 ──
-diagnosis_result = st.session_state.get("last_diagnosis")
-socratic_result = st.session_state.get("last_socratic_result")
-feynman_result = st.session_state.get("last_feynman_result")
+# ── 从 typed session 读取三个来源的结果 ──
+session = get_session()
+diagnosis_dict = session.diagnosis_result.model_dump() if session.diagnosis_result else None
+socratic_dict = session.socratic_result.model_dump() if session.socratic_result else None
+feynman_dict = session.feynman_result.model_dump() if session.feynman_result else None
 
-has_any_result = any([diagnosis_result, socratic_result, feynman_result])
+has_any_result = any([diagnosis_dict, socratic_dict, feynman_dict])
 
 if not has_any_result:
     st.warning("当前还没有完成任何学习环节。系统将展示默认学习路径。")
 
-# ── 生成路径 ──
+# ── 生成路径（使用 legacy wrapper，返回 dict） ──
 learning_path = generate_learning_path(
-    diagnosis_result=diagnosis_result,
-    socratic_result=socratic_result,
-    feynman_result=feynman_result,
+    diagnosis_result=diagnosis_dict,
+    socratic_result=socratic_dict,
+    feynman_result=feynman_dict,
 )
+
+# 写入 typed session
+session.recommendation_result = LearningPathResult(
+    current_level=learning_path.get("current_level", "需要加强"),
+    weak_points=learning_path.get("weak_points", []),
+    recommended_steps=learning_path.get("recommended_steps", []),
+    total_weak_points=len(learning_path.get("weak_points", [])),
+    total_recommended_steps=len(learning_path.get("recommended_steps", [])),
+)
+save_session(session)
 
 st.session_state["last_learning_path"] = learning_path
 
@@ -53,20 +65,19 @@ st.markdown("### 二、识别出的薄弱知识点")
 
 weak_points = learning_path.get("weak_points", [])
 if weak_points:
-    # 追溯来源
     source_map: dict[str, list[str]] = {}
-    if diagnosis_result:
-        for pt in diagnosis_result.get("missing_concepts", []):
+    if diagnosis_dict:
+        for pt in diagnosis_dict.get("missing_concepts", []):
             source_map.setdefault(pt, []).append("错题诊断")
-    if socratic_result:
-        for pt in socratic_result.get("remaining_weak_points", []):
+    if socratic_dict:
+        for pt in socratic_dict.get("remaining_weak_points", []):
             source_map.setdefault(pt, []).append("苏格拉底引导")
-    if feynman_result:
-        for pt in feynman_result.get("missing_points", []):
+    if feynman_dict:
+        for pt in feynman_dict.get("missing_points", []):
             source_map.setdefault(pt, []).append("费曼评价")
 
     for pt in weak_points:
-        sources = source_map.get(pt, ["系统默认"])
+        sources = source_map.get(str(pt), ["系统默认"])
         src_tags = " · ".join(sources)
         st.markdown(f"- 🔍 **{pt}**（来自：{src_tags}）")
 else:
@@ -86,28 +97,19 @@ if steps:
         title = step.get("title", kid)
         unit = KNOWLEDGE_UNITS.get(kid, {})
 
-        with st.expander(
-            f"Step {order}：{title}（{kid}）",
-            expanded=(order == 1),
-        ):
+        with st.expander(f"Step {order}：{title}（{kid}）", expanded=(order == 1)):
             st.markdown(f"**推荐原因**：{reason}")
-
-            # 先修关系
             prereqs = unit.get("prerequisites", [])
             if prereqs:
                 prereq_names = [
-                    KNOWLEDGE_UNITS.get(p, {}).get("title", p)
-                    for p in prereqs
+                    KNOWLEDGE_UNITS.get(p, {}).get("title", p) for p in prereqs
                 ]
                 st.caption(f"📋 先修要求：{' → '.join(prereq_names)}")
-
-            # 建议行动
             st.markdown("**建议行动**：")
             st.markdown(f"- 查看知识图谱中相关的因果链")
             st.markdown(f"- 用费曼法重新解释{title}")
             if unit.get("keywords"):
                 st.markdown(f"- 重点关注术语：{'、'.join(unit['keywords'][:5])}")
-
 else:
     st.info("暂无推荐步骤。")
 
@@ -125,16 +127,18 @@ with col1:
 
 with col2:
     if st.button("🦉 重新进行苏格拉底引导", use_container_width=True):
-        st.session_state["socratic_history"] = []
-        # 默认使用 S001
-        st.session_state["current_socratic_id"] = "S001"
+        if "ui_input_cache" in st.session_state:
+            st.session_state["ui_input_cache"].pop("socratic", None)
+        st.session_state.pop("socratic_history", None)
+        session = get_session()
+        session.current_socratic_id = "S001"
+        save_session(session)
         go_to("socratic")
 
 with col3:
     if st.button("💬 回到智能答疑", use_container_width=True):
         go_to("answering")
 
-# ── 闭环提示 ──
 if has_any_result:
     st.success(
         "🔄 学习闭环：答疑 → 诊断 → 苏格拉底引导 → 费曼评价 → 学习路径 → 回到答疑。"

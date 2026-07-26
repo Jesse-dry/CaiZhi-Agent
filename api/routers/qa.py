@@ -69,8 +69,12 @@ async def create_qa_run(
 
     async def execute():
         try:
-            result = await service.answer(request, sink=sink)
-            await store.complete(record.run_id, result.model_dump())
+            sr = await service.answer(request, sink=sink)
+            if sr.success and sr.result:
+                await store.complete(record.run_id, sr.result.model_dump())
+            else:
+                error_msg = sr.errors[0].message if sr.errors else "未知错误"
+                await store.fail(record.run_id, error_msg)
         except Exception as exc:
             logger.exception("QA run %s failed", record.run_id)
             await store.fail(record.run_id, str(exc))

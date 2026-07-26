@@ -27,9 +27,18 @@ Key principle:
     NOT the session manager. The LearningSession model is the authority.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, UTC
 from pydantic import BaseModel, Field, field_validator
 from schemas.common import LearningStage
+
+# 类型化结果模型 — 替代原来的 dict | None
+from schemas.qa import QAResult
+from schemas.diagnosis import DiagnosisResult
+from schemas.socratic import SocraticCompleteResult
+from schemas.feynman import FeynmanResult
+from schemas.recommendation import LearningPathResult
 
 
 class LearningSession(BaseModel):
@@ -44,7 +53,11 @@ class LearningSession(BaseModel):
 
     # ---- identity ----
     session_id: str = Field(default="default", description="Session unique ID")
-    user_id: str | None = Field(default=None, description="Student identifier")
+    student_id: str | None = Field(default=None, description="学生标识符（提案名）")
+    user_id: str | None = Field(default=None, description="[deprecated] 使用 student_id 替代")
+
+    # ---- knowledge context ----
+    knowledge_id: str = Field(default="K001", description="当前知识单元 ID（提案统一字段）")
 
     # ---- stage ----
     current_stage: LearningStage = Field(default=LearningStage.QA, description="Current learning loop stage")
@@ -59,19 +72,24 @@ class LearningSession(BaseModel):
             return LearningStage(v)
         raise ValueError(f"Invalid stage: {v}")
 
-    # ---- context pointers ----
-    current_knowledge_id: str | None = Field(default=None, description="Current knowledge unit ID")
-    current_chain_id: str | None = Field(default=None, description="Current causal chain ID")
-    current_question_id: str | None = Field(default=None, description="Current self-test question ID")
-    current_socratic_id: str | None = Field(default=None, description="Current Socratic chain ID")
-    current_feynman_id: str | None = Field(default=None, description="Current Feynman rubric ID")
+    # ---- context pointers (deprecated — 逐步迁移到 knowledge_id + 各阶段 result 中提取) ----
+    current_knowledge_id: str | None = Field(default=None, description="[deprecated] 使用 knowledge_id")
+    current_chain_id: str | None = Field(default=None, description="[deprecated] 从 qa_result.chain_id 提取")
+    current_question_id: str | None = Field(default=None, description="[deprecated] 从 qa_result.recommended_question_id 提取")
+    current_socratic_id: str | None = Field(default=None, description="[deprecated] 从 diagnosis_result.recommended_socratic_id 提取")
+    current_feynman_id: str | None = Field(default=None, description="[deprecated] 从 socratic_result 推断")
 
-    # ---- stage results (stored as dicts for flexibility; use model_dump() from Pydantic results) ----
-    qa_result: dict | None = Field(default=None, description="QA result (QAResult.model_dump())")
-    diagnosis_result: dict | None = Field(default=None, description="Diagnosis result (DiagnosisResult.model_dump())")
-    socratic_result: dict | None = Field(default=None, description="Socratic result (SocraticCompleteResult.model_dump())")
-    feynman_result: dict | None = Field(default=None, description="Feynman result (FeynmanResult.model_dump())")
-    recommendation_result: dict | None = Field(default=None, description="Learning path result (LearningPathResult.model_dump())")
+    # ---- stage results (typed Pydantic models — Pydantic v2 auto-coerces dict → model) ----
+    qa_result: QAResult | None = Field(default=None, description="QA 阶段结果")
+    diagnosis_result: DiagnosisResult | None = Field(default=None, description="错题诊断结果")
+    socratic_result: SocraticCompleteResult | None = Field(default=None, description="苏格拉底引导完成结果")
+    feynman_result: FeynmanResult | None = Field(default=None, description="费曼评价结果")
+    recommendation_result: LearningPathResult | None = Field(default=None, description="学习路径推荐结果")
+
+    # ---- 学习追踪（提案新增） ----
+    mastered_concepts: list[str] = Field(default_factory=list, description="已掌握的知识点")
+    weak_concepts: list[str] = Field(default_factory=list, description="薄弱知识点")
+    misconception_ids: list[str] = Field(default_factory=list, description="触发的误区 ID 列表")
 
     # ---- versioning ----
     version: int = Field(default=1, description="Schema version for migration compatibility")
@@ -86,6 +104,13 @@ class LearningSession(BaseModel):
         description="Last update time (UTC)",
     )
 
+    # ── 向后兼容 property ─────────────────────────────────
+
+    @property
+    def _user_id(self) -> str | None:
+        """向后兼容：优先取 student_id，fallback 到 user_id"""
+        return self.student_id or self.user_id
+
     def touch(self) -> None:
         """Update the updated_at timestamp (call before saving)."""
         self.updated_at = datetime.now(UTC)
@@ -94,7 +119,8 @@ class LearningSession(BaseModel):
 class SessionSummary(BaseModel):
     """Lightweight session summary for list views (no full history)."""
     session_id: str = Field(..., description="Session ID")
-    user_id: str | None = Field(default=None, description="Student ID")
+    student_id: str | None = Field(default=None, description="Student ID")
+    user_id: str | None = Field(default=None, description="[deprecated] 使用 student_id")
     current_stage: LearningStage = Field(..., description="Current stage")
     version: int = Field(default=1, description="Schema version")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -107,12 +133,14 @@ class SessionSummary(BaseModel):
 
 def create_default_session(
     session_id: str = "default",
-    user_id: str | None = None,
+    student_id: str | None = None,
 ) -> LearningSession:
     """Create a fresh session with V1 default context pointers."""
     return LearningSession(
         session_id=session_id,
-        user_id=user_id or "student_test_01",
+        student_id=student_id or "student_test_01",
+        user_id=student_id or "student_test_01",  # backward compat
+        knowledge_id="K001",
         current_stage=LearningStage.QA,
         current_knowledge_id="K001",
         current_chain_id="C001",
@@ -123,10 +151,12 @@ def create_default_session(
 
 
 def reset_session(session: LearningSession) -> LearningSession:
-    """Reset to initial state, preserving session_id and user_id."""
+    """Reset to initial state, preserving session_id and student_id."""
     return LearningSession(
         session_id=session.session_id,
-        user_id=session.user_id,
+        student_id=session.student_id,
+        user_id=session.student_id,  # backward compat
+        knowledge_id="K001",
     )
 
 

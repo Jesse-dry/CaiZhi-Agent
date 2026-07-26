@@ -2,68 +2,70 @@
 页面 4：费曼学习法评价（Feynman Evaluation）
 学习闭环第 4 步：苏格拉底引导 → 费曼评价 → 学习路径
 
-学生用自己的话解释 → 五维度评分 → 暴露薄弱点 → 推荐下一步问题。
+V2 (Phase 3)：使用 typed LearningSession 替代 st.session_state flat keys。
 """
 
 import streamlit as st
-from utils.state import init_session_state, go_to
-from services.feynman_service import load_feynman_rubric, evaluate
+from utils.state import init_session_state, get_session, save_session, go_to
+from services.feynman_service import load_feynman_rubric, evaluate_legacy as evaluate
+from schemas.feynman import FeynmanResult
 
 init_session_state()
 
 st.title("🗣️ 费曼学习法评价")
 st.caption("真正理解一个概念，就是能用自己的话把它讲清楚。")
 
-# ── 读取 feynman_id ──
-feynman_id = st.session_state.get("current_feynman_id", "F001")
+# ── 读取 session 中的 feynman_id ──
+session = get_session()
+feynman_id = session.current_feynman_id or "F001"
 rubric = load_feynman_rubric(feynman_id)
 
 if rubric is None:
     st.error(f"未找到费曼评价标准：{feynman_id}")
     st.stop()
 
-# ── 题目提示 ──
 st.markdown("### 🎯 挑战")
 st.info(rubric.get("prompt", "请用自己的话解释这个知识点。"))
 
-# ── 参考 checklist（可折叠） ──
 with st.expander("📋 评分标准（6 个关键点）"):
     for item in rubric.get("checklist", []):
         st.markdown(f"- {item.get('point', '')}")
 
-# ── 输入区域 ──
 feynman_text = st.text_area(
     "请用你自己的话解释：",
     height=150,
     placeholder="试着像一个老师一样，给没学过材料学的同学讲清楚……",
 )
 
-# ── 提交 ──
 if st.button("提交评价", type="primary", use_container_width=True):
     if not feynman_text.strip():
         st.warning("请先输入你的解释！")
     else:
         with st.spinner("🤖 AI 正在从五个维度评价你的解释..."):
-            result = evaluate(feynman_text, feynman_id)
+            result_dict = evaluate(feynman_text, feynman_id)
 
-        st.session_state["last_feynman_result"] = result
+        # 写入 typed LearningSession
+        session = get_session()
+        session.feynman_result = FeynmanResult(**result_dict)
+        save_session(session)
+
+        # 同步 flat key
+        st.session_state["last_feynman_result"] = result_dict
 
 # ── 评价结果展示 ──
-feynman_result = st.session_state.get("last_feynman_result")
+result = session.feynman_result
 
-if feynman_result:
+if result:
     st.divider()
     st.markdown("### 📊 评价结果")
 
-    total = feynman_result.get("total_score", 0)
-    dims = feynman_result.get("dimension_scores", {})
+    total = result.total_score
+    dims = result.dimension_scores
 
-    # ── 总分 ──
-    st.markdown(f"## {total} / 100")
-    color = "green" if total >= 80 else ("orange" if total >= 60 else "red")
-    st.progress(total / 100)
+    st.markdown(f"## {total} / 78")
+    color = "green" if total >= 60 else ("orange" if total >= 40 else "red")
+    st.progress(total / 78)
 
-    # ── 五维度评分 ──
     st.markdown("#### 维度评分")
 
     dim_labels = {
@@ -75,7 +77,7 @@ if feynman_result:
     }
 
     for dim_key, (label, max_pts) in dim_labels.items():
-        score = dims.get(dim_key, 0)
+        score = getattr(dims, dim_key, 0)
         pct = score / max_pts if max_pts > 0 else 0
         emoji = "🟢" if pct >= 0.8 else ("🟡" if pct >= 0.5 else "🔴")
         col1, col2 = st.columns([1, 4])
@@ -84,44 +86,35 @@ if feynman_result:
         with col2:
             st.progress(pct, f"{score} / {max_pts}")
 
-    # ── 覆盖 / 缺失 ──
-    covered = feynman_result.get("covered_points", [])
-    missing = feynman_result.get("missing_points", [])
-    incorrect = feynman_result.get("incorrect_points", [])
-
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown("**✅ 讲清楚的部分**")
-        if covered:
-            for pt in covered:
+        if result.covered_points:
+            for pt in result.covered_points:
                 st.markdown(f"- {pt}")
         else:
             st.markdown("（无）")
     with col_b:
         st.markdown("**❌ 缺失的部分**")
-        if missing:
-            for pt in missing:
+        if result.missing_points:
+            for pt in result.missing_points:
                 st.markdown(f"- {pt}")
         else:
             st.markdown("（无）")
 
-    if incorrect:
+    if result.incorrect_points:
         st.markdown("**⚠️ 表述有误的部分**")
-        for pt in incorrect:
+        for pt in result.incorrect_points:
             st.warning(pt)
 
-    # ── 优秀范例 ──
     with st.expander("📖 参考范例"):
         example = rubric.get("excellent_example", "")
         if example:
             st.markdown(example)
 
-    # ── 推荐下一步问题 ──
-    next_q = feynman_result.get("next_question", "")
-    if next_q:
-        st.info(f"💡 **建议下一步思考**：{next_q}")
+    if result.next_question:
+        st.info(f"💡 **建议下一步思考**：{result.next_question}")
 
-    # ── 导航 ──
     st.divider()
     st.markdown("### 下一步")
 
@@ -131,5 +124,8 @@ if feynman_result:
             go_to("learning_path")
     with col2:
         if st.button("🔄 重新解释", use_container_width=True):
+            session = get_session()
+            session.feynman_result = None
+            save_session(session)
             st.session_state.pop("last_feynman_result", None)
             st.rerun()

@@ -25,9 +25,9 @@
 
 ---
 
-## 技术架构（四层 + 双入口复用 + API + 前端规划）
+## 技术架构（四层 + 双入口复用 + 统一数据模型 + API + 前端规划）
 
-2026-07-11 完成四层架构重构，2026-07-25 实现 Streamlit / FastAPI 双入口复用同一套 `services/` 业务逻辑，并建立自动评测基线。
+2026-07-11 完成四层架构重构，2026-07-25 实现 Streamlit / FastAPI 双入口复用同一套 `services/` 业务逻辑，2026-07-26 统一数据模型（`ServiceResult` wrapper + typed `LearningSession` + 统一 `SourceReference`）。
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -101,6 +101,37 @@ run.started → retrieval.started → retrieval.source_found×N → retrieval.co
 
 **模式**：`POST 创建任务 → GET SSE 订阅`—— 副作用和订阅分离，支持断线重连。
 
+### 统一数据模型（2026-07-26）
+
+所有 service 返回统一的 `ServiceResult[T]` wrapper + 类型化 Pydantic model，st.session_state 精简为 3 个 key。
+
+**`ServiceResult[T]`** — 统一结果 wrapper（`schemas/common.py`）：
+```python
+class ServiceResult(BaseModel, Generic[T]):
+    success: bool             # 是否成功
+    result: T | None          # 业务结果（typed Pydantic model）
+    warnings: list[str]       # 非致命警告
+    errors: list[ServiceError]  # 错误列表（含 ServiceErrorType 枚举）
+    trace_id: str             # 追踪 ID
+```
+
+6 种统一错误类型：`MODEL_TIMEOUT` / `INVALID_MODEL_OUTPUT` / `RETRIEVAL_EMPTY` / `KNOWLEDGE_NOT_FOUND` / `INVALID_STAGE_TRANSITION` / `DATABASE_ERROR`
+
+**`LearningSession`** — typed 权威会话模型（`schemas/learning_session.py`）：
+- 5 个阶段结果从 `dict | None` 升级为 typed Pydantic model（`QAResult | None` 等）
+- 新增学习追踪字段：`mastered_concepts` / `weak_concepts` / `misconception_ids`
+- Pydantic v2 自动将历史 dict 数据转换为 typed model，向前兼容
+
+**`SourceReference`** — 统一来源引用（`schemas/common.py`）：
+- 新增 `doc_id` / `book_title` / `image_refs` 字段
+- 提案字段别名：`source_id` / `excerpt` / `retrieval_score`
+- QA、费曼、评测模块共用同一结构
+
+**`st.session_state` 精简**（`utils/state.py`）：
+- 旧：22 个 flat key（`last_qa_result`, `last_diagnosis`, …）
+- 新：**3 个 key** — `session_id` / `current_page` / `ui_input_cache`
+- 业务状态全部从 typed `get_session()` → `session.qa_result.short_answer` 读取
+
 ### 状态机 + 守卫条件
 
 教学闭环由 `workflows/learning_loop.py` 后端强制执行：
@@ -134,13 +165,13 @@ CaiZhi-Agent/
 │   ├── 7_Debug.py                 # 知识库调试
 │   └── 8_RAG_Debug.py             # RAG 检索调试
 │
-├── services/                      # 服务层 —— 类化 + 构造器注入 + EventSink
+├── services/                      # 服务层 —— 统一 ServiceResult[T] 返回 + 类化 DI
 │   ├── rag_service.py             # ✅ RAG 检索服务封装
-│   ├── qa_service.py              # ✅ QAService 类（DI + async + event_sink）
-│   ├── diagnosis_service.py       # ✅ 错题诊断（待类化）
-│   ├── socratic_service.py        # ✅ 苏格拉底引导（待类化）
-│   ├── feynman_service.py         # ✅ 费曼评价（待类化）
-│   └── recommendation_service.py  # ✅ 学习路径推荐（待类化）
+│   ├── qa_service.py              # ✅ QAService 类（DI + async + EventSink → ServiceResult[QAResult]）
+│   ├── diagnosis_service.py       # ✅ submit_answer() → ServiceResult[DiagnosisResult]
+│   ├── socratic_service.py        # ✅ judge_answer()/complete_socratic() → ServiceResult
+│   ├── feynman_service.py         # ✅ evaluate() → ServiceResult[FeynmanResult]
+│   └── recommendation_service.py  # ✅ generate_learning_path() → ServiceResult[LearningPathResult]
 │
 ├── schemas/                       # ★ 统一数据协议（Pydantic v2）
 │   ├── common.py                  #   共享枚举和值对象
@@ -357,15 +388,13 @@ streamlit run app.py
 
 ### 学习闭环（五页 + 五服务）
 
-| 页面 | Service | V1 引擎 | 说明 |
-|------|---------|---------|------|
-| 1. 智能答疑 | `qa_service` | 规则驱动 | `answer_question()` 组合四种数据源，固定 7 区块输出。LLM prompt 已构建，待接入。 |
-| 2. 错题诊断 | `diagnosis_service` | JSON 映射 | `submit_answer()` 误区定位 + `misconception_id`，统一键名。 |
-| 3. 苏格拉底引导 | `socratic_service` | 关键词匹配 | `judge_answer()` → advance/hint/retry/simplify，S001 链 6 步台阶。 |
-| 4. 费曼评价 | `feynman_service` | Checklist 评分 | `evaluate()` 五维度打分（满分 78），`next_question` 追问。 |
-| 5. 知识图谱 | — | 🔧 stub | 可视化待做 |
-| 6. 学习路径推荐 | `recommendation_service` | 先修关系排序 | 聚合三源薄弱点 → 知识单元 K001-K004 → 拓扑排序。 |
-| 7. 调试页面 | — | ✅ 已实现 | 术语表 + 知识图谱数据验证 |
+| 页面 | Service | V2 返回类型 | 说明 |
+|------|---------|------------|------|
+| 1. 智能答疑 | `qa_service` | `ServiceResult[QAResult]` | 组合四种数据源，固定 7 区块输出。LLM prompt 已构建，待接入。 |
+| 2. 错题诊断 | `diagnosis_service` | `ServiceResult[DiagnosisResult]` | `submit_answer()` 误区定位 + `misconception_id` |
+| 3. 苏格拉底引导 | `socratic_service` | `ServiceResult[SocraticStepResult]` | `judge_answer()` → advance/hint/retry/simplify |
+| 4. 费曼评价 | `feynman_service` | `ServiceResult[FeynmanResult]` | `evaluate()` 五维度打分（满分 78） |
+| 6. 学习路径推荐 | `recommendation_service` | `ServiceResult[LearningPathResult]` | 聚合三源薄弱点 → 先修关系拓扑排序 |
 
 **学习闭环链路**：`答疑(K001,C001,Q001) → 诊断(Q001→S001) → 苏格拉底(S001→F001) → 费曼(F001评分) → 学习路径(聚合排序) → 回到答疑`
 
@@ -373,7 +402,7 @@ streamlit run app.py
 
 | 模块 | 状态 | 说明 |
 |---|---|---|
-| `utils/state.py` | ✅ 已统一 | `last_user_question`, `last_answer`, `last_qa_result`, `last_diagnosis`, `last_socratic_result`, `last_feynman_result`, `last_learning_path` |
+| `utils/state.py` | ✅ V2 精简 | st.session_state 精简为 3 key（session_id/current_page/ui_input_cache），typed session 访问 |
 | `knowledge/prompt_builder.py` | ✅ 已实现 | 约束型 Prompt — 四种数据源职责边界明确 |
 | 知识图谱 | ✅ 已实现 | 8 节点 / 7 边 / 1 因果链 C001 |
 | 术语扩展 | ✅ 已实现 | `term_expander` — 查询中英双向匹配 + 因果链节点反查补齐 |

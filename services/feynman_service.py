@@ -3,11 +3,17 @@
 
 核心理念：checklist 关键词匹配 → 五维度打分 → 结构化评价结果。
 V1 用关键词匹配，接入 LLM 后替换 evaluate 逻辑即可。
+
+V2：返回 ServiceResult[FeynmanResult]，统一错误处理。
+向后兼容：evaluate_legacy() 返回旧 dict 格式。
 """
 
 import json
 import re
 from pathlib import Path
+
+from schemas.feynman import FeynmanResult, DimensionScores
+from schemas.common import ServiceResult, ServiceError, ServiceErrorType
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FEYNMAN_PATH = BASE_DIR / "data" / "feynman.json"
@@ -58,7 +64,7 @@ def _match_keywords(text: str, keywords: list[str]) -> bool:
     return any(kw.lower() in text_lower for kw in keywords)
 
 
-def _count_all_keyword_matches(text: str, checklist: list[dict]) -> int:
+def _count_all_keyword_matches(text: str, checklist: list[dict]) -> tuple[int, int]:
     """统计所有 checklist 条目中匹配到的关键词总数"""
     text_lower = text.lower()
     all_keywords = set()
@@ -74,7 +80,6 @@ def _count_all_keyword_matches(text: str, checklist: list[dict]) -> int:
 def _score_clarity(text: str, max_score: int = 16) -> int:
     """基于文本结构估算表达清晰度（V1 简单启发式）"""
     score = 0
-    # 长度适中
     length = len(text)
     if 80 <= length <= 600:
         score += 6
@@ -82,17 +87,19 @@ def _score_clarity(text: str, max_score: int = 16) -> int:
         score += 3
     elif length > 0:
         score += 1
-    # 有逻辑连接词
     logic_words = ["因为", "所以", "因此", "首先", "然后", "最后", "由于", "导致", "从而"]
     logic_count = sum(1 for w in logic_words if w in text)
     score += min(logic_count * 2, 6)
-    # 分段/句号
     sentence_count = len(re.findall(r"[。.!！?？\n]", text))
     score += min(sentence_count, 4)
     return min(score, max_score)
 
 
-def evaluate(explanation: str, feynman_id: str = "F001") -> dict:
+# ═══════════════════════════════════════════════════════════
+# 新版：返回 ServiceResult[FeynmanResult]
+# ═══════════════════════════════════════════════════════════
+
+def evaluate(explanation: str, feynman_id: str = "F001") -> ServiceResult[FeynmanResult]:
     """
     评价学生的费曼解释。
 
@@ -101,39 +108,27 @@ def evaluate(explanation: str, feynman_id: str = "F001") -> dict:
         feynman_id: 评价标准 ID
 
     返回:
-        {
-            "feynman_id": "F001",
-            "total_score": int,
-            "dimension_scores": {...},
-            "covered_points": [...],
-            "missing_points": [...],
-            "incorrect_points": [...],
-            "next_question": str,
-        }
+        ServiceResult[FeynmanResult]
     """
     rubric = load_feynman_rubric(feynman_id)
     if rubric is None:
-        return {
-            "feynman_id": feynman_id,
-            "total_score": 0,
-            "dimension_scores": {},
-            "covered_points": [],
-            "missing_points": [],
-            "incorrect_points": [],
-            "next_question": "",
-        }
+        return ServiceResult(
+            success=False,
+            errors=[ServiceError(
+                type=ServiceErrorType.KNOWLEDGE_NOT_FOUND,
+                message=f"未找到费曼评价标准：{feynman_id}",
+            )],
+        )
 
     checklist = rubric.get("checklist", [])
     if not checklist:
-        return {
-            "feynman_id": feynman_id,
-            "total_score": 0,
-            "dimension_scores": {},
-            "covered_points": [],
-            "missing_points": [],
-            "incorrect_points": [],
-            "next_question": "",
-        }
+        return ServiceResult(
+            success=False,
+            errors=[ServiceError(
+                type=ServiceErrorType.KNOWLEDGE_NOT_FOUND,
+                message=f"评价标准 {feynman_id} 的 checklist 为空",
+            )],
+        )
 
     # ── 逐条检查 checklist ──
     covered_points: list[str] = []
@@ -143,7 +138,7 @@ def evaluate(explanation: str, feynman_id: str = "F001") -> dict:
         "causal_completeness": 0,
         "term_accuracy": 0,
         "clarity": 0,
-        "misconception_control": 10,  # V1 默认满分，LLM 接入后真实评分
+        "misconception_control": 10,  # V1 默认满分
     }
 
     for idx, dim_key, max_pts in _CHECKLIST_DIM_MAP:
@@ -159,7 +154,7 @@ def evaluate(explanation: str, feynman_id: str = "F001") -> dict:
         else:
             missing_points.append(point_label)
 
-    # ── 术语准确性：匹配到的关键词比例 ──
+    # ── 术语准确性 ──
     matched_kw, total_kw = _count_all_keyword_matches(explanation, checklist)
     if total_kw > 0:
         dim_scores["term_accuracy"] = round(matched_kw / total_kw * 14)
@@ -170,7 +165,7 @@ def evaluate(explanation: str, feynman_id: str = "F001") -> dict:
     # ── 总分 ──
     total_score = sum(dim_scores.values())
 
-    # ── 生成后续问题（基于第一个缺失点） ──
+    # ── 生成后续问题 ──
     next_question = ""
     for idx, dim_key, _ in _CHECKLIST_DIM_MAP:
         if idx >= len(checklist):
@@ -180,21 +175,44 @@ def evaluate(explanation: str, feynman_id: str = "F001") -> dict:
             next_question = _FOLLOWUP_QUESTIONS.get(idx, "")
             break
 
-    # ── incorrect_points（V1 无法检测，LLM 接入后启用） ──
-    incorrect_points: list[str] = []
+    result = FeynmanResult(
+        feynman_id=feynman_id,
+        total_score=total_score,
+        dimension_scores=DimensionScores(
+            concept_accuracy=dim_scores["concept_accuracy"],
+            causal_completeness=dim_scores["causal_completeness"],
+            term_accuracy=dim_scores["term_accuracy"],
+            clarity=dim_scores["clarity"],
+            misconception_control=dim_scores["misconception_control"],
+        ),
+        covered_points=covered_points,
+        missing_points=missing_points,
+        incorrect_points=[],  # V1 无法检测，V2 LLM 接入后启用
+        next_question=next_question,
+    )
 
+    return ServiceResult(success=True, result=result)
+
+
+# ═══════════════════════════════════════════════════════════
+# 向后兼容 wrapper — 返回 dict
+# ═══════════════════════════════════════════════════════════
+
+def evaluate_legacy(explanation: str, feynman_id: str = "F001") -> dict:
+    """
+    [deprecated] 旧 dict 接口，内部委托给 evaluate()。
+
+    Streamlit 页面在 Phase 3 迁移前继续使用此函数。
+    """
+    sr = evaluate(explanation, feynman_id)
+    if sr.success and sr.result:
+        return sr.result.model_dump()
     return {
         "feynman_id": feynman_id,
-        "total_score": total_score,
-        "dimension_scores": {
-            "concept_accuracy": dim_scores["concept_accuracy"],
-            "causal_completeness": dim_scores["causal_completeness"],
-            "term_accuracy": dim_scores["term_accuracy"],
-            "clarity": dim_scores["clarity"],
-            "misconception_control": dim_scores["misconception_control"],
-        },
-        "covered_points": covered_points,
-        "missing_points": missing_points,
-        "incorrect_points": incorrect_points,
-        "next_question": next_question,
+        "total_score": 0,
+        "dimension_scores": {},
+        "covered_points": [],
+        "missing_points": [],
+        "incorrect_points": [],
+        "next_question": "",
     }

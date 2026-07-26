@@ -8,10 +8,18 @@
   4. 知识图谱 → 先修关系
 
 V1 不接大模型，纯规则映射。
+
+V2：返回 ServiceResult[LearningPathResult]，统一错误处理。
+向后兼容：generate_learning_path_legacy() 返回旧 dict。
 """
 
 from collections import OrderedDict
-from knowledge.knowledge_graph import load_knowledge_graph
+from datetime import datetime, UTC
+
+from schemas.recommendation import (
+    LearningPathResult, WeakPointDetail, RecommendedStep,
+)
+from schemas.common import MasteryLevel, ServiceResult
 
 
 # ═══════════════════════════════════════════════════════════
@@ -71,7 +79,6 @@ def _collect_weak_points(
 
     if diagnosis_result:
         raw.extend(diagnosis_result.get("missing_concepts", []))
-        # 错题误区本身也是一个薄弱点
         misc = diagnosis_result.get("misconception", "")
         if misc:
             raw.append(misc)
@@ -86,15 +93,11 @@ def _collect_weak_points(
 
 
 def _map_weak_points_to_units(weak_points: list[str]) -> list[str]:
-    """
-    将薄弱点关键词映射到知识单元 ID。
-    每个薄弱点匹配最相关的知识单元。
-    """
+    """将薄弱点关键词映射到知识单元 ID"""
     matched_units: set[str] = set()
 
     for point in weak_points:
         point_lower = point.lower()
-        # 找到匹配关键词最多的知识单元
         best_unit = None
         best_score = 0
         for unit_id, unit in KNOWLEDGE_UNITS.items():
@@ -111,30 +114,21 @@ def _map_weak_points_to_units(weak_points: list[str]) -> list[str]:
         if best_unit:
             matched_units.add(best_unit)
         else:
-            # 无法匹配的知识点默认关联 K001
             matched_units.add("K001")
 
     return list(matched_units)
 
 
 def _sort_by_prerequisites(unit_ids: list[str]) -> list[str]:
-    """
-    按先修关系拓扑排序。没有先修要求的在前，有先修的在后。
-    同层级按定义顺序。
-    """
-    # 先建立所有先修集合
+    """按先修关系拓扑排序"""
     all_ids = set(unit_ids)
-
-    # 拓扑排序（Kahn 简化版）
     sorted_ids: list[str] = []
     remaining = set(unit_ids)
 
     while remaining:
-        # 找到所有先修已满足的单元
         ready = []
         for uid in sorted(remaining, key=lambda x: list(KNOWLEDGE_UNITS.keys()).index(x)):
             prereqs = KNOWLEDGE_UNITS.get(uid, {}).get("prerequisites", [])
-            # 只考虑已加载单元的 prereqs
             relevant_prereqs = [p for p in prereqs if p in all_ids]
             if all(p in sorted_ids for p in relevant_prereqs):
                 ready.append(uid)
@@ -143,47 +137,67 @@ def _sort_by_prerequisites(unit_ids: list[str]) -> list[str]:
             sorted_ids.extend(ready)
             remaining -= set(ready)
         else:
-            # 循环依赖或无先修信息：按原始顺序输出
             sorted_ids.extend(sorted(remaining, key=lambda x: list(KNOWLEDGE_UNITS.keys()).index(x)))
             break
 
     return sorted_ids
 
 
-def _determine_level(weak_points: list[str]) -> str:
+def _determine_level(weak_points: list[str]) -> MasteryLevel:
     """根据薄弱点数量判断掌握程度"""
     count = len(weak_points)
     if count == 0:
-        return "已掌握"
+        return MasteryLevel.MASTERED
     elif count <= 2:
-        return "基本掌握"
+        return MasteryLevel.BASIC
     elif count <= 5:
-        return "部分掌握"
+        return MasteryLevel.PARTIAL
     else:
-        return "需要加强"
+        return MasteryLevel.NEEDS_IMPROVEMENT
+
+
+def _trace_source(point: str, diagnosis: dict | None, socratic: dict | None, feynman: dict | None) -> str:
+    """追溯薄弱点来源"""
+    sources = []
+    if diagnosis:
+        if point in diagnosis.get("missing_concepts", []) or point == diagnosis.get("misconception", ""):
+            sources.append("diagnosis")
+    if socratic:
+        if point in socratic.get("remaining_weak_points", []):
+            sources.append("socratic")
+    if feynman:
+        if point in feynman.get("missing_points", []):
+            sources.append("feynman")
+    return sources[0] if sources else "system"
+
+
+def _map_point_to_knowledge_id(point: str) -> str:
+    """将单个薄弱点映射到知识单元 ID"""
+    point_lower = point.lower()
+    best_unit = None
+    best_score = 0
+    for unit_id, unit in KNOWLEDGE_UNITS.items():
+        score = sum(1 for kw in unit.get("keywords", []) if kw.lower() in point_lower)
+        if score > best_score:
+            best_score = score
+            best_unit = unit_id
+    return best_unit or "K001"
 
 
 # ═══════════════════════════════════════════════════════════
-# 主入口
+# 新版：返回 ServiceResult[LearningPathResult]
 # ═══════════════════════════════════════════════════════════
 
 def generate_learning_path(
     diagnosis_result: dict | None = None,
     socratic_result: dict | None = None,
     feynman_result: dict | None = None,
-) -> dict:
+) -> ServiceResult[LearningPathResult]:
     """
     聚合三个来源的薄弱点 → 映射知识单元 → 按先修关系排序 → 生成推荐路径。
 
     返回:
-        {
-            "current_level": str,
-            "weak_points": [str],
-            "recommended_steps": [
-                {"order": 1, "knowledge_id": "K004", "reason": "..."},
-                ...
-            ],
-        }
+        ServiceResult[LearningPathResult]
     """
     # 1. 聚合薄弱点
     weak_points = _collect_weak_points(diagnosis_result, socratic_result, feynman_result)
@@ -195,7 +209,7 @@ def generate_learning_path(
     # 2. 映射到知识单元
     unit_ids = _map_weak_points_to_units(weak_points)
 
-    # 确保 K001 始终在推荐中（作为基础）
+    # 确保 K001 始终在推荐中
     if "K001" not in unit_ids and len(unit_ids) < 3:
         unit_ids.insert(0, "K001")
 
@@ -203,21 +217,70 @@ def generate_learning_path(
     sorted_ids = _sort_by_prerequisites(unit_ids)
 
     # 4. 生成推荐步骤
-    recommended_steps: list[dict] = []
+    recommended_steps: list[RecommendedStep] = []
     for order, uid in enumerate(sorted_ids, start=1):
         unit = KNOWLEDGE_UNITS.get(uid, {})
-        recommended_steps.append({
-            "order": order,
-            "knowledge_id": uid,
-            "reason": unit.get("description", ""),
-            "title": unit.get("title", uid),
-        })
+        recommended_steps.append(RecommendedStep(
+            order=order,
+            knowledge_id=uid,
+            title=unit.get("title", uid),
+            reason=unit.get("description", ""),
+            source="system",  # 默认，下面细化
+        ))
 
     # 5. 判断掌握程度
     current_level = _determine_level(weak_points)
 
+    # 6. 构建 WeakPointDetail 列表（带来源追踪）
+    weak_point_details: list[WeakPointDetail] = []
+    for point in weak_points:
+        source = _trace_source(point, diagnosis_result, socratic_result, feynman_result)
+        mapped_id = _map_point_to_knowledge_id(point)
+        weak_point_details.append(WeakPointDetail(
+            point=point,
+            source=source,
+            mapped_knowledge_id=mapped_id,
+        ))
+
+    result = LearningPathResult(
+        current_level=current_level,
+        weak_points=weak_point_details,
+        recommended_steps=recommended_steps,
+        total_weak_points=len(weak_point_details),
+        total_recommended_steps=len(recommended_steps),
+        generated_at=datetime.now(UTC).isoformat(),
+    )
+
+    return ServiceResult(success=True, result=result)
+
+
+# ═══════════════════════════════════════════════════════════
+# 向后兼容 wrapper — 返回 dict
+# ═══════════════════════════════════════════════════════════
+
+def generate_learning_path_legacy(
+    diagnosis_result: dict | None = None,
+    socratic_result: dict | None = None,
+    feynman_result: dict | None = None,
+) -> dict:
+    """
+    [deprecated] 旧 dict 接口，内部委托给 generate_learning_path()。
+
+    Streamlit 页面在 Phase 3 迁移前继续使用此函数。
+    """
+    sr = generate_learning_path(diagnosis_result, socratic_result, feynman_result)
+    if sr.success and sr.result:
+        r = sr.result
+        return {
+            "current_level": r.current_level.value,
+            "weak_points": [w.point for w in r.weak_points],
+            "recommended_steps": [
+                {"order": s.order, "knowledge_id": s.knowledge_id, "reason": s.reason, "title": s.title}
+                for s in r.recommended_steps
+            ],
+        }
     return {
-        "current_level": current_level,
-        "weak_points": weak_points,
-        "recommended_steps": recommended_steps,
+        "current_level": "需要加强",
+        "weak_points": [],
+        "recommended_steps": [],
     }
