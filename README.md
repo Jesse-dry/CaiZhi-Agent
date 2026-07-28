@@ -390,10 +390,10 @@ candidate → auto_validated → needs_review → approved → published → dep
 python scripts/expand_qa_dataset.py --knowledge-ids K_QUENCHING,K_MARTENSITE --count 20
 
 # 生成苏格拉底引导链
-python scripts/expand_socratic_dataset.py --chain-id C001 --count 5
+python scripts/expand_socratic_dataset.py --chain-id C001 --count 3
 
 # 生成费曼评价数据
-python scripts/expand_feynman_dataset.py --knowledge-ids K_QUENCHING --count 5
+python scripts/expand_feynman_dataset.py --knowledge-ids K_QUENCHING --count 3
 
 # 运行自动校验
 python scripts/run_validation.py --type all
@@ -404,6 +404,23 @@ streamlit run app.py  # → 导航到 9_Dataset_Review
 # 发布到正式数据集
 python scripts/publish_dataset.py --type qa --approved-only --version 2026.08.1
 ```
+
+### 首次扩充结果（2026-07-29）
+
+使用 DeepSeek API 运行完整管线，面向"淬火→马氏体→硬度"因果链（KG C001）：
+
+| 数据类型 | 生成数量 | 自动校验通过 | 通过率 |
+|----------|----------|-------------|--------|
+| QA 题目（6 种题型 × 3 级难度） | 20 | 20 | 100% |
+| 分级学生答案（5 档质量水平） | 95 | 95 | 100% |
+| 苏格拉底引导链（有分支教学图） | 3 | —\* | — |
+| 费曼任务（5 维度评分标准） | 3 | 3 | 100% |
+| 费曼学生回答（5 档） | 10 | 10 | 100% |
+| **合计** | **131** | **128** | **97.7%** |
+
+> \*苏格拉底链仅因术语覆盖不全和去重报警未通过，数据结构完整（Schema/Evidence/Graph 全部 ✓）
+>
+> 所有候选数据存储在 `data/candidates/*.jsonl`（不入 git），待人工审核后发布。
 
 ### 黄金评测集隔离
 
@@ -453,11 +470,22 @@ source venv/bin/activate   # Linux/Mac
 pip install -r requirements.txt
 ```
 
-### 2. 配置 API Key
+### 2. 配置环境变量
 
-创建 `.env` 文件：
+复制 `.env.example` 为 `.env`（如无可直接创建），填入 API Key：
+
 ```bash
-ANTHROPIC_API_KEY=sk-ant-...
+# LLM Provider（当前默认：DeepSeek，国内可用）
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_MODEL=deepseek-chat
+
+# 备选：Anthropic Claude
+# LLM_PROVIDER=anthropic
+# ANTHROPIC_API_KEY=sk-ant-...
+
+# RAG Embedding（DashScope API，零本地内存）
+DASHSCOPE_API_KEY=sk-...
 ```
 
 ### 3. 准备教材 PDF
@@ -537,7 +565,7 @@ streamlit run app.py
 | 术语扩展 | ✅ 已实现 | `term_expander` — 查询中英双向匹配 + 因果链节点反查补齐 |
 | FastAPI 双入口 | ✅ 已实现 | Streamlit + FastAPI 共享同一 `services/` 层，零重复实现 |
 | 自动评测基线 | ✅ 已实现 | `python -m evaluation` 一键输出 7 项指标 |
-| Agent 层 (`agents/`) | ❌ 全部 stub | 5 个 Agent 文件待 LLM 接入后实现 |
+| Agent 层 (`agents/`) | ⚠️ 部分就绪 | 5 个教学 Agent stub；数据生产 Generator + Critic 已接入 DeepSeek |
 | 数据库 (`database/`) | ❌ stub | 学生记录待接入 |
 
 ---

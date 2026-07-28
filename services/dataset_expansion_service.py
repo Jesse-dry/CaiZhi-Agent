@@ -109,6 +109,9 @@ class DatasetExpansionService:
         self._generator = None
         self._critic = None
 
+        # ID 计数器（每次 run_full_pipeline 时重置）
+        self._id_counters: dict[str, int] = {}
+
     @property
     def generator(self):
         """惰性加载 Generator Agent"""
@@ -124,6 +127,13 @@ class DatasetExpansionService:
             from agents.dataset_critic_agent import DatasetCriticAgent
             self._critic = DatasetCriticAgent(self._llm)
         return self._critic
+
+    def _next_id(self, prefix: str) -> str:
+        """分配唯一 ID，如 Q_AUTO_0001, SA_AUTO_0001 等"""
+        if prefix not in self._id_counters:
+            self._id_counters[prefix] = 0
+        self._id_counters[prefix] += 1
+        return f"{prefix}{self._id_counters[prefix]:04d}"
 
     # ═══════════════════════════════════════════════════════════
     # Pipeline
@@ -147,6 +157,9 @@ class DatasetExpansionService:
         """
         batch_id = f"batch_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
         logger.info(f"Starting pipeline {batch_id} for {target.knowledge_ids}")
+
+        # 重置 ID 计数器
+        self._id_counters = {}
 
         # 1. 构建 EvidencePackage
         evidence = await self._build_evidence(target)
@@ -296,12 +309,18 @@ class DatasetExpansionService:
         return queries[:10]  # 限制查询数量
 
     def _load_existing_items(self, target: ExpansionTarget) -> list[dict]:
-        """加载已有数据摘要"""
+        """加载已有数据摘要（统一字段名方便去重参考）"""
         existing: list[dict] = []
-        # 从手工数据
-        for item_type in ["qa", "socratic", "feynman_task"]:
-            questions = self._knowledge.list_questions() if item_type == "qa" else []
-            existing.extend(questions)
+        # 从手工题库加载
+        questions = self._knowledge.list_questions()
+        for q in questions:
+            existing.append({
+                "id": q.get("question_id", q.get("id", "")),
+                "question": q.get("question", q.get("title", "")),
+                "knowledge_ids": q.get("knowledge_ids", q.get("knowledge_id", [])),
+                "difficulty": q.get("difficulty", ""),
+                "key_points": q.get("key_points", q.get("key_concepts", [])),
+            })
         return existing
 
     # ═══════════════════════════════════════════════════════════
@@ -329,34 +348,54 @@ class DatasetExpansionService:
                 )
                 bp_index += target.target_count
             elif output_type == "socratic":
-                blueprints.append(
-                    GenerationBlueprint(
-                        blueprint_id=f"BP_SOCRATIC_{bp_index:04d}",
-                        target=target,
-                        output_type="socratic",
-                        difficulty=2,
-                        allowed_chunk_ids=all_chunk_ids,
-                        graph_path_hint=self._get_chain_path(target),
+                for _ in range(target.target_count):
+                    blueprints.append(
+                        GenerationBlueprint(
+                            blueprint_id=f"BP_SOCRATIC_{bp_index:04d}",
+                            target=target,
+                            output_type="socratic",
+                            difficulty=2,
+                            allowed_chunk_ids=all_chunk_ids,
+                            graph_path_hint=self._get_chain_path(target),
+                        )
                     )
-                )
-                bp_index += 1
+                    bp_index += 1
             elif output_type == "feynman":
-                blueprints.append(
-                    GenerationBlueprint(
-                        blueprint_id=f"BP_FEYNMAN_{bp_index:04d}",
-                        target=target,
-                        output_type="feynman",
-                        difficulty=2,
-                        allowed_chunk_ids=all_chunk_ids,
-                        graph_path_hint=self._get_chain_path(target),
+                for _ in range(target.target_count):
+                    blueprints.append(
+                        GenerationBlueprint(
+                            blueprint_id=f"BP_FEYNMAN_{bp_index:04d}",
+                            target=target,
+                            output_type="feynman",
+                            difficulty=2,
+                            allowed_chunk_ids=all_chunk_ids,
+                            graph_path_hint=self._get_chain_path(target),
+                        )
                     )
-                )
-                bp_index += 1
+                    bp_index += 1
             elif output_type == "student_answers":
                 # student_answers 跟随 qa 生成，不单独生成蓝图
                 pass
 
         return blueprints
+
+    @staticmethod
+    def _distribute_exact(count: int, ratios: dict) -> dict:
+        """精确按比例分配 count 个名额（largest remainder 方法）"""
+        if count <= 0:
+            return {}
+        # 计算理想配额
+        total_ratio = sum(ratios.values())
+        quota = {k: count * v / total_ratio for k, v in ratios.items()}
+        # 整数部分
+        result = {k: int(q) for k, q in quota.items()}
+        # 按余数分配剩余名额
+        remainder = count - sum(result.values())
+        fracs = sorted(quota.items(), key=lambda x: x[1] - int(x[1]), reverse=True)
+        for i in range(remainder):
+            result[fracs[i][0]] += 1
+        # 移除 0 项
+        return {k: v for k, v in result.items() if v > 0}
 
     def _generate_qa_blueprints(
         self,
@@ -365,44 +404,24 @@ class DatasetExpansionService:
         all_chunk_ids: list[str],
         start_index: int,
     ) -> list[GenerationBlueprint]:
-        """按题型和难度分布生成 QA 蓝图"""
+        """按题型和难度分布生成 QA 蓝图（精确分配）"""
         blueprints: list[GenerationBlueprint] = []
         dist = target.question_type_distribution
         diff_dist = target.difficulty_distribution
-
         count = target.target_count
         bp_index = start_index
 
-        # 按比例分配题型
-        type_counts: dict[str, int] = {}
-        remaining = count
-        types_sorted = sorted(dist.items(), key=lambda x: x[1], reverse=True)
+        # 按比例精确分配题型
+        type_counts = self._distribute_exact(count, dist)
 
-        for i, (qtype, ratio) in enumerate(types_sorted):
-            if i == len(types_sorted) - 1:
-                type_counts[qtype] = remaining
-            else:
-                type_counts[qtype] = max(1, int(count * ratio))
-                remaining -= type_counts[qtype]
-
-        # 为每道题生成蓝图
         for qtype, type_count in type_counts.items():
-            # 分配难度
-            diff_counts: dict[int, int] = {}
-            remaining = type_count
-            for d in sorted(diff_dist.keys()):
-                if d == max(diff_dist.keys()):
-                    diff_counts[d] = remaining
-                else:
-                    diff_counts[d] = max(1, int(type_count * diff_dist[d]))
-                    remaining -= diff_counts[d]
+            # 按比例精确分配难度
+            diff_counts = self._distribute_exact(type_count, diff_dist)
 
             for diff, diff_count in diff_counts.items():
                 for _ in range(diff_count):
-                    # 选择相关的 chunk_ids（与目标知识点相关的片段）
-                    relevant_chunks = all_chunk_ids[:8]  # 简化：取前 8 个
+                    relevant_chunks = all_chunk_ids[:8]
 
-                    # 构建关键点（从 KG 节点提取）
                     path = self._get_chain_path(target)
                     key_points = []
                     for node_id in path:
@@ -445,9 +464,16 @@ class DatasetExpansionService:
         try:
             qa_dict = self.generator.generate_qa(bp)
             if "error" not in qa_dict:
+                # 覆盖 ID（LLM 生成的 ID 不可靠）
+                qa_id = self._next_id("Q_AUTO_")
+                qa_dict["id"] = qa_id
                 qa_dict["status"] = DatasetStatus.CANDIDATE.value
                 qa_dict["created_by"] = "deepseek-chat"
                 qa_dict["generator_prompt_version"] = "qa_gen_v1"
+
+                # 后处理：清理 diagnosis + 规范化 source_refs
+                qa_dict = self._clean_qa_item(qa_dict)
+                qa_dict = self._normalize_source_refs(qa_dict)
                 batch.qa_items.append(qa_dict)
 
                 # 生成学生答案
@@ -457,6 +483,8 @@ class DatasetExpansionService:
                     )
                     for ans in answers:
                         if "error" not in ans:
+                            ans["id"] = self._next_id("SA_AUTO_")
+                            ans["question_id"] = qa_id
                             ans["status"] = DatasetStatus.CANDIDATE.value
                             ans["created_by"] = "deepseek-chat"
                             ans["generator_prompt_version"] = "sa_gen_v1"
@@ -471,6 +499,8 @@ class DatasetExpansionService:
         try:
             socratic_dict = self.generator.generate_socratic(batch.target)
             if "error" not in socratic_dict:
+                socratic_dict["id"] = self._next_id("S_AUTO_")
+                socratic_dict = self._normalize_source_refs(socratic_dict)
                 socratic_dict["status"] = DatasetStatus.CANDIDATE.value
                 socratic_dict["created_by"] = "deepseek-chat"
                 socratic_dict["generator_prompt_version"] = "socratic_gen_v1"
@@ -485,6 +515,9 @@ class DatasetExpansionService:
         try:
             task_dict = self.generator.generate_feynman_task(batch.target)
             if "error" not in task_dict:
+                task_id = self._next_id("F_AUTO_")
+                task_dict["id"] = task_id
+                task_dict = self._normalize_source_refs(task_dict)
                 task_dict["status"] = DatasetStatus.CANDIDATE.value
                 task_dict["created_by"] = "deepseek-chat"
                 task_dict["generator_prompt_version"] = "feynman_gen_v1"
@@ -494,12 +527,85 @@ class DatasetExpansionService:
                 responses = self.generator.generate_feynman_responses(task_dict, count=5)
                 for resp in responses:
                     if "error" not in resp:
+                        resp["id"] = self._next_id("FR_AUTO_")
+                        resp["feynman_id"] = task_id
                         resp["status"] = DatasetStatus.CANDIDATE.value
                         resp["created_by"] = "deepseek-chat"
                         resp["generator_prompt_version"] = "fr_gen_v1"
                         batch.feynman_responses.append(resp)
         except Exception as e:
             logger.error(f"Failed to generate feynman for {bp.blueprint_id}: {e}")
+
+    @staticmethod
+    def _normalize_source_refs(item: dict) -> dict:
+        """为缺失必填字段的 source_refs 补充默认值，处理字符串等异常格式"""
+        refs = item.get("source_refs", [])
+        if not isinstance(refs, list):
+            item["source_refs"] = []
+            return item
+
+        normalized = []
+        for ref in refs:
+            if isinstance(ref, str):
+                # LLM 可能返回字符串而非 dict，转为 dict
+                normalized.append({
+                    "chunk_id": ref[:50] if ref else "unknown",
+                    "text": ref,
+                    "file_name": "textbook_reference",
+                    "language": "zh",
+                })
+            elif isinstance(ref, dict):
+                if "file_name" not in ref or not ref.get("file_name"):
+                    ref["file_name"] = ref.get("chunk_id") or ref.get("text", "")[:30] or "textbook_reference"
+                if "language" not in ref:
+                    ref["language"] = "zh"
+                if "chunk_id" not in ref or not ref.get("chunk_id"):
+                    # chunk_id 缺失或为空，从 file_name 或 text 推断
+                    ref["chunk_id"] = ref.get("file_name") or ref.get("text", "")[:30] or "unknown"
+                normalized.append(ref)
+            else:
+                normalized.append({
+                    "chunk_id": "unknown",
+                    "text": str(ref),
+                    "file_name": "textbook_reference",
+                    "language": "zh",
+                })
+
+        item["source_refs"] = normalized
+        return item
+
+    @staticmethod
+    def _clean_qa_item(qa_dict: dict) -> dict:
+        """后处理 QA 题目：清理 diagnosis、移除正确选项条目、处理 null 值"""
+        answer = qa_dict.get("answer", "")
+        diagnosis = qa_dict.get("diagnosis", {})
+
+        if isinstance(diagnosis, dict):
+            cleaned = {}
+            for key, detail in diagnosis.items():
+                if not isinstance(detail, dict):
+                    continue
+                # 跳过正确选项的诊断条目
+                if key == answer:
+                    continue
+                # 清理 null 值
+                cleaned_detail = {}
+                for k, v in detail.items():
+                    if v is None:
+                        cleaned_detail[k] = "" if k != "remedial_path" else []
+                    else:
+                        cleaned_detail[k] = v
+                # 确保必要字段非空
+                if not cleaned_detail.get("misconception_id"):
+                    cleaned_detail["misconception_id"] = f"M_{qa_dict.get('id', 'UNKNOWN')}_{key}"
+                if not cleaned_detail.get("misconception"):
+                    cleaned_detail["misconception"] = f"错误选项 {key}"
+                if not cleaned_detail.get("error_reason"):
+                    cleaned_detail["error_reason"] = "需要补充错误原因分析"
+                cleaned[key] = cleaned_detail
+            qa_dict["diagnosis"] = cleaned
+
+        return qa_dict
 
     def _save_batch(self, batch: ExpansionBatch) -> None:
         """保存批次到 JSONL"""

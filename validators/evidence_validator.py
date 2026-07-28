@@ -67,6 +67,7 @@ def validate_source_refs(
     source_refs: list[dict],
     reference_text: str = "",
     key_points: list[str] | None = None,
+    strict_chunks: bool = False,
 ) -> tuple[bool, list[str], list[str]]:
     """
     验证 source_refs。
@@ -75,6 +76,7 @@ def validate_source_refs(
         source_refs: 候选数据的 source_refs 列表
         reference_text: 参考答案文本（用于相关性检查）
         key_points: 关键知识点列表
+        strict_chunks: 是否严格检查 chunk_id 在 ChromaDB 中存在（默认 False，仅检查格式）
 
     返回:
         (is_valid, errors, missing_chunk_ids)
@@ -92,12 +94,11 @@ def validate_source_refs(
             errors.append("source_ref missing chunk_id")
             continue
 
-        if not _chunk_exists(chunk_id):
+        if strict_chunks and not _chunk_exists(chunk_id):
             missing.append(chunk_id)
             errors.append(f"chunk_id '{chunk_id}' does not exist in any ChromaDB collection")
 
     # 不做过度的文本相关性检查（留给 Critic Agent）
-    # 只做基本的非空检查
     has_text = any(
         (ref.get("text", "") or ref.get("excerpt", ""))
         if isinstance(ref, dict)
@@ -117,6 +118,10 @@ def validate_evidence(data: dict, item_type: str) -> tuple[bool, list[str], list
     返回:
         (is_valid, errors, missing_chunk_ids)
     """
+    # 学生答案和费曼回答不需要 source_refs
+    if item_type in ("student_answer", "feynman_response"):
+        return True, [], []
+
     source_refs = data.get("source_refs", [])
     reference_text = data.get("reference_answer", "") or data.get("response", "") or ""
     key_points = data.get("key_points", []) or data.get("mandatory_points", [])

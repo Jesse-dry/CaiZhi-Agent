@@ -128,7 +128,7 @@ class DatasetGeneratorAgent:
         prompt = self._build_qa_prompt(blueprint)
         system = self._qa_system_prompt()
 
-        raw = self._llm.chat(prompt, system=system, temperature=0.7)
+        raw = self._llm.chat(prompt, system=system, temperature=0.7, max_tokens=8192)
         return self._parse_json_output(raw, "QA")
 
     def _qa_system_prompt(self) -> str:
@@ -403,7 +403,7 @@ class DatasetGeneratorAgent:
 - 所有 next_if_* 指针必须指向存在的 step_id 或 null（null 表示完成）
 """
 
-        raw = self._llm.chat(prompt, system=system, temperature=0.6)
+        raw = self._llm.chat(prompt, system=system, temperature=0.6, max_tokens=8192)
         return self._parse_json_output(raw, "socratic")
 
     def _build_socratic_prompt(self, target: ExpansionTarget) -> str:
@@ -501,7 +501,7 @@ class DatasetGeneratorAgent:
 - checklist 每项对应一个 mandatory_point
 - excellent_example 应是完整、清晰、包含所有 mandatory_points 的示范"""
 
-        raw = self._llm.chat(prompt, system=system, temperature=0.6)
+        raw = self._llm.chat(prompt, system=system, temperature=0.6, max_tokens=8192)
         return self._parse_json_output(raw, "feynman_task")
 
     def _build_feynman_task_prompt(self, target: ExpansionTarget) -> str:
@@ -605,8 +605,8 @@ expected_score_range 给出 [min, max] 区间（满分 78）。"""
 
         处理 LLM 可能包裹在 ```json...``` 中的情况。
         """
-        # 尝试提取 ```json ... ``` 块
-        json_block_pattern = r"```(?:json)?\s*\n?(.*?)\n?```"
+        # 尝试提取 ```json ... ``` 块（兼容 Windows \r\n）
+        json_block_pattern = r"```(?:json)?\s*\n(.*?)\n\s*```"
         matches = re.findall(json_block_pattern, raw, re.DOTALL)
         if matches:
             # 使用最后一个 JSON 块（通常是主输出）
@@ -616,6 +616,29 @@ expected_score_range 给出 [min, max] 区间（满分 78）。"""
         try:
             result = json.loads(raw.strip())
             return result
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: 尝试修复被截断的 JSON（补全缺失的括号/引号）
+        try:
+            raw_stripped = raw.strip()
+            # 统计括号
+            open_braces = raw_stripped.count("{") - raw_stripped.count("}")
+            open_brackets = raw_stripped.count("[") - raw_stripped.count("]")
+            # 补全缺失的字符串引号（如果最后一行在字符串中间）
+            if raw_stripped and raw_stripped[-1] not in "}]\"\n":
+                # 可能在字符串值中间，截断到最后一个完整值
+                last_comma = raw_stripped.rfind(',\n')
+                if last_comma > 0:
+                    raw_stripped = raw_stripped[:last_comma]
+            # 补全缺失的括号
+            raw_stripped += "]" * open_brackets
+            raw_stripped += "}" * open_braces
+            result = json.loads(raw_stripped)
+            if expect_array and isinstance(result, list):
+                return result
+            if not expect_array and isinstance(result, dict):
+                return result
         except json.JSONDecodeError:
             pass
 
@@ -657,6 +680,8 @@ expected_score_range 给出 [min, max] 区间（满分 78）。"""
                     pass
 
         logger.error(f"Failed to parse JSON from {context} output. Raw: {raw[:500]}...")
+        if expect_array:
+            return []
         return {"error": "json_parse_failed", "raw": raw[:500]}
 
 

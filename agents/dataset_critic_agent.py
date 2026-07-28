@@ -273,8 +273,8 @@ ID: {candidate.get('id', '')}
 
     def _parse_review(self, raw: str, item_id: str) -> CriticReview:
         """解析 Critic LLM 输出"""
-        # 提取 JSON 块
-        json_pattern = r"```(?:json)?\s*\n?(.*?)\n?```"
+        # 提取 JSON 块（兼容 Windows \r\n）
+        json_pattern = r"```(?:json)?\s*\n(.*?)\n\s*```"
         matches = re.findall(json_pattern, raw, re.DOTALL)
         json_str = matches[-1] if matches else raw
 

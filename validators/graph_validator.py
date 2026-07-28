@@ -130,7 +130,11 @@ def validate_graph_path(graph_path: list[str]) -> tuple[bool, list[str], list[st
 def validate_graph_in_item(data: dict, item_type: str) -> tuple[bool, list[str], list[str]]:
     """
     统一入口：根据条目类型提取 graph_path 并验证。
+    对于不需要 graph_path 的类型（student_answer, feynman_response），跳过检查。
     """
+    if item_type in ("student_answer", "feynman_response"):
+        return True, [], []
+
     graph_path = data.get("graph_path", [])
     return validate_graph_path(graph_path)
 

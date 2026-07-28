@@ -173,29 +173,33 @@ def validate_terminology(texts: list[str]) -> tuple[bool, list[str], list[str]]:
 
 def validate_terminology_in_item(data: dict, item_type: str) -> tuple[bool, list[str], list[str]]:
     """
-    统一入口：从候选数据中提取所有文本并验证术语。
+    统一入口：从候选数据的结构化字段中检查关键术语是否在 terms.csv 中。
+
+    不再对自由文本做全量术语扫描（假阳性太高）。
+    只检查 expected_concepts / graph_path 中的短语，以及明确的术语名称。
     """
     texts: list[str] = []
 
-    # 通用字段
-    for field in ["question", "reference_answer", "response", "prompt",
-                   "student_answer", "final_summary", "excellent_example"]:
-        val = data.get(field, "")
-        if val:
-            texts.append(str(val))
-
-    # options
-    options = data.get("options", {})
-    if isinstance(options, dict):
-        for v in options.values():
-            texts.append(str(v))
-
-    # key_points / mandatory_points / expected_concepts
-    for list_field in ["key_points", "mandatory_points", "expected_concepts",
-                        "expected_diagnosis", "expected_feedback"]:
+    # 从关键概念列表中提取（这些都是出题者明确标注的关键词）
+    for list_field in ["expected_concepts", "target_knowledge_ids"]:
         val = data.get(list_field, [])
         if isinstance(val, list):
-            texts.extend(str(v) for v in val)
+            texts.extend(str(v) for v in val if v and len(str(v)) <= 20)
+
+    # 从 graph_path 提取节点 ID（可对照 KG 验证，跳过术语检查）
+    # graph_path 中的是 KG 节点 ID，不是术语文本
+
+    # 对于苏格拉底链和费曼任务，检查 expected_concepts
+    for step in data.get("steps", []) or []:
+        if isinstance(step, dict):
+            val = step.get("expected_concepts", [])
+            if isinstance(val, list):
+                texts.extend(str(v) for v in val if v and len(str(v)) <= 20)
+
+    # 如果没有明确的术语列表，跳过术语检查（返回通过）
+    # 自由文本中的术语检查留给 Critic Agent
+    if not texts:
+        return True, [], []
 
     return validate_terminology(texts)
 

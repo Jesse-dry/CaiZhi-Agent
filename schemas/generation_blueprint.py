@@ -89,7 +89,7 @@ class EvidencePackage(BaseModel):
     graph_edges: list[GraphEdge] = Field(default_factory=list, description="知识图谱边")
     graph_chains: list[dict] = Field(default_factory=list, description="因果链（含 path）")
     standard_terms: list[StandardTerm] = Field(default_factory=list, description="标准术语表")
-    existing_items: list[ExistingDatasetItem] = Field(default_factory=list, description="已有数据（用于去重参考）")
+    existing_items: list[dict] = Field(default_factory=list, description="已有数据（用于去重参考）")
 
 
 # ═══════════════════════════════════════════════════════════

@@ -74,7 +74,7 @@ class FileKnowledgeRepository(KnowledgeRepository):
         results = []
         query_lower = query.lower()
         with open(path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
+            reader = csv.DictReader(f, restval="")
             for row in reader:
                 # 搜索 zh、en、aliases_zh、aliases_en、search_keywords
                 searchable = " ".join([
@@ -90,9 +90,9 @@ class FileKnowledgeRepository(KnowledgeRepository):
         path = self.base_dir / "terms.csv"
         field = "zh" if language == "zh" else "en"
         with open(path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
+            reader = csv.DictReader(f, restval="")
             for row in reader:
-                if row.get(field, "").lower() == term.lower():
+                if (row.get(field) or "").lower() == term.lower():
                     return dict(row)
         return None
 
