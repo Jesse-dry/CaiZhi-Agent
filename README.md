@@ -246,7 +246,13 @@ CaiZhi-Agent/
 │   ├── fix_metadata.py            #   修复向量库 metadata
 │   └── enrich_images.py           #   图片索引补全
 │
-├── agents/                        # AI 推理层
+├── agents/                        # ★ 受约束 AI Agent 层（2026-07-31）
+│   ├── base.py                     #   BaseAgent Protocol + 共享 helpers
+│   ├── qa_agent.py                 #   智能答疑 — RAG+术语+图谱 → 结构化回答
+│   ├── diagnosis_agent.py          #   错题诊断 — 因果推理断裂点分析
+│   ├── socratic_agent.py           #   苏格拉底引导 — LLM 判断回答质量 → 动作决策
+│   ├── feynman_agent.py            #   费曼评价 — LLM 五维度评分 + 错误检测
+│   ├── graph_reasoning_agent.py    #   图谱推理 — 缺失先修节点 + 因果断裂
 │   ├── dataset_generator_agent.py  #   数据集生成 Agent（有证据约束）
 │   └── dataset_critic_agent.py     #   数据集审查 Agent（独立于 Generator）
 │
@@ -565,7 +571,7 @@ streamlit run app.py
 | 术语扩展 | ✅ 已实现 | `term_expander` — 查询中英双向匹配 + 因果链节点反查补齐 |
 | FastAPI 双入口 | ✅ 已实现 | Streamlit + FastAPI 共享同一 `services/` 层，零重复实现 |
 | 自动评测基线 | ✅ 已实现 | `python -m evaluation` 一键输出 7 项指标 |
-| Agent 层 (`agents/`) | ⚠️ 部分就绪 | 5 个教学 Agent stub；数据生产 Generator + Critic 已接入 DeepSeek |
+| Agent 层 (`agents/`) | ✅ 已实现 | 5 个受约束 Agent（QA/Diagnosis/Socratic/Feynman/GraphReasoning）+ 统一 BaseAgent 协议 + AgentResult（content/structured_data/evidence/confidence/trace）；LLM 可用时自动启用，V1 关键词引擎为 fallback |
 | 数据库 (`database/`) | ❌ stub | 学生记录待接入 |
 
 ---
@@ -623,7 +629,7 @@ streamlit run app.py
 
 ## 开发者
 
-两位清华大学本科生，AI+材料大赛参赛团队。
+清华大学本科生，AI+材料大赛参赛个人项目。
 
 ---
 

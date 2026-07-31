@@ -1,14 +1,15 @@
 """
 苏格拉底引导服务层。
 
-核心理念：预定义教学台阶 + 关键词匹配判断回答质量 → 决定推进/提示/重问。
-V1 用关键词匹配，接入 LLM 后替换 judge 逻辑即可。
+核心理念：预定义教学台阶 + LLM Agent 判断回答质量 → 决定推进/提示/重问。
+V1 用关键词匹配（fallback），V2 用 LLM Agent。
 
 V2：返回 ServiceResult[SocraticStepResult] / ServiceResult[SocraticCompleteResult]。
 向后兼容：judge_answer_legacy() / complete_socratic_legacy() 返回旧 dict。
 """
 
 import json
+import logging
 from pathlib import Path
 
 from schemas.socratic import SocraticStepResult, SocraticCompleteResult
@@ -16,6 +17,9 @@ from schemas.common import (
     AnswerQuality, SocraticAction,
     ServiceResult, ServiceError, ServiceErrorType,
 )
+from schemas.agent import create_agent_context
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SOCRATIC_PATH = BASE_DIR / "data" / "socratic.json"
@@ -88,16 +92,35 @@ def judge_answer(
     step: dict,
     student_answer: str,
     attempt_count: int,
+    llm_client=None,
+    socratic_chain: dict | None = None,
 ) -> ServiceResult[SocraticStepResult]:
     """
     判断学生回答质量，返回 ServiceResult[SocraticStepResult]。
+
+    V2：LLM Agent 判断（V1 关键词 fallback）。
 
     参数:
         step: 当前教学台阶（含 question, expected_keywords, hint, explanation_if_wrong）
         student_answer: 学生的回答文本
         attempt_count: 当前台阶的尝试次数（1-based）
+        llm_client: 可选 LLM 客户端
+        socratic_chain: 可选完整苏格拉底链（Agent 需要完整上下文）
     """
     step_id = step.get("step", 0)
+
+    # ── V2: LLM Agent ──
+    if llm_client is not None:
+        try:
+            result = _judge_with_agent(
+                llm_client, step, student_answer, attempt_count, socratic_chain
+            )
+            if result is not None:
+                return result
+        except Exception as e:
+            logger.warning(f"SocraticAgent failed, falling back to V1 keyword: {e}")
+
+    # ── V1: keyword fallback ──
     expected = step.get("expected_keywords", [])
     hint = step.get("hint", "")
     explanation = step.get("explanation_if_wrong", "")
@@ -187,6 +210,86 @@ def complete_socratic(
     )
 
     return ServiceResult(success=True, result=result)
+
+
+# ═══════════════════════════════════════════════════════════
+# LLM Agent 集成
+# ═══════════════════════════════════════════════════════════
+
+def _judge_with_agent(
+    llm_client,
+    step: dict,
+    student_answer: str,
+    attempt_count: int,
+    socratic_chain: dict | None = None,
+) -> ServiceResult[SocraticStepResult] | None:
+    """Use SocraticAgent to judge the answer via LLM."""
+    import asyncio
+    from agents.socratic_agent import SocraticAgent
+
+    step_id = step.get("step", 0)
+
+    agent_ctx = create_agent_context(
+        session_id="socratic",
+        student_input=student_answer,
+        socratic_chain=socratic_chain or {"steps": [step]},
+        metadata={
+            "step_index": step_id,
+            "attempt_count": attempt_count,
+        },
+    )
+
+    agent = SocraticAgent(llm_client)
+    agent_result = _run_async(agent.run(agent_ctx))
+
+    if not agent_result or not agent_result.structured_data:
+        return None
+
+    sd = agent_result.structured_data
+
+    # Map string actions to enums
+    action_str = sd.get("action", "hint")
+    action_map = {
+        "advance": SocraticAction.ADVANCE,
+        "hint": SocraticAction.HINT,
+        "retry": SocraticAction.RETRY,
+        "simplify": SocraticAction.SIMPLIFY,
+        "complete": SocraticAction.COMPLETE,
+    }
+    action = action_map.get(action_str, SocraticAction.HINT)
+
+    quality_str = sd.get("quality", "partial")
+    quality_map = {
+        "complete": AnswerQuality.COMPLETE,
+        "partial": AnswerQuality.PARTIAL,
+        "incorrect": AnswerQuality.INCORRECT,
+    }
+    quality = quality_map.get(quality_str, AnswerQuality.PARTIAL)
+
+    result = SocraticStepResult(
+        step_id=step_id,
+        student_answer_quality=quality,
+        covered_points=sd.get("covered_points", []),
+        missing_points=sd.get("missing_points", []),
+        action=action,
+        response=sd.get("response", ""),
+    )
+    return ServiceResult(success=True, result=result)
+
+
+def _run_async(coro):
+    """Run an async coroutine in a sync-compatible way."""
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, coro)
+                return future.result(timeout=60)
+        return asyncio.run(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
 
 
 # ═══════════════════════════════════════════════════════════

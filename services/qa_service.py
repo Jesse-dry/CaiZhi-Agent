@@ -45,6 +45,7 @@ from schemas.qa import QARequest, QAResult
 from schemas.common import CausalStep, KeyTerm, SourceReference, ServiceResult, ServiceError, ServiceErrorType
 from schemas.events import StreamEvent, EventEmitter, generate_run_id
 from schemas.event_sink import EventSink, NullEventSink
+from schemas.agent import create_agent_context
 from repositories.rag_repo import RAGRepository
 from repositories.knowledge_repo import KnowledgeRepository
 from infrastructure.llm_client import LLMClient
@@ -146,27 +147,89 @@ class QAService:
         # 8. 教材来源
         sources = self._extract_sources(all_retrieved, image_results)
 
-        # 9. 生成阶段（V1: 占位，V2: LLM 生成）
+        # 9. 生成阶段（V2: LLM Agent，V1: 占位 fallback）
         await s.emit(emitter.generation_started())
 
-        short_answer = graph_chain.get("summary", "") if graph_chain else ""
-        principle = graph_chain.get("summary", "") if graph_chain else ""
+        llm_structured: dict = {}
+        llm_evidence: dict = {}
+        llm_trace: dict = {}
+        llm_content: str = ""
 
-        # TODO (V2): LLM 逐 section 生成，每个 delta 推 sink
-        # await s.emit(emitter.generation_delta(section="short_answer", delta=...))
-        # await s.emit(emitter.generation_section_completed(section="short_answer"))
+        if self.llm is not None:
+            try:
+                # Build knowledge graph nodes from the matched chain
+                graph_nodes = self._extract_graph_nodes(graph_chain)
 
-        for section in ["short_answer", "principle", "causal_chain", "key_terms"]:
-            await s.emit(emitter.generation_section_completed(section=section))
+                # Build AgentContext with all bounded resources
+                agent_ctx = create_agent_context(
+                    session_id=request.session_id,
+                    student_input=request.question,
+                    rag_chunks=all_retrieved,
+                    image_chunks=image_results,
+                    graph_nodes=graph_nodes,
+                    causal_chain=graph_chain,
+                    terms=key_terms,
+                    questions=[self_test] if self_test else [],
+                    metadata={
+                        "knowledge_id": request.knowledge_id or "K001",
+                        "chain_id": chain_id or "C001",
+                    },
+                )
 
-        # 10. 组装结果
-        result = QAResult(
-            question=request.question,
-            knowledge_id=request.knowledge_id or "K001",
-            chain_id=chain_id or "C001",
-            short_answer=short_answer,
-            principle=principle,
-            causal_chain=[
+                # Call QAAgent
+                from agents.qa_agent import QAAgent
+                qa_agent = QAAgent(self.llm)
+                agent_result = await qa_agent.run(agent_ctx)
+
+                llm_structured = agent_result.structured_data
+                llm_content = agent_result.content
+                llm_evidence = agent_result.evidence.model_dump()
+                llm_trace = agent_result.trace.model_dump()
+
+                # Push generation deltas for SSE streaming
+                for section in ["short_answer", "principle", "causal_chain", "key_terms"]:
+                    if llm_structured.get(section):
+                        await s.emit(emitter.generation_delta(
+                            section=section,
+                            delta=str(llm_structured[section])[:200],
+                        ))
+                        await s.emit(emitter.generation_section_completed(section=section))
+
+                logger.info(
+                    f"QAAgent completed: confidence={agent_result.confidence}, "
+                    f"model={self.llm.config.model}"
+                )
+            except Exception as e:
+                logger.warning(f"QAAgent failed, falling back to V1 placeholder: {e}")
+
+        # V1 fallback values (used when LLM unavailable or agent fails)
+        short_answer = llm_structured.get("short_answer") or (
+            graph_chain.get("summary", "") if graph_chain else ""
+        )
+        principle = llm_structured.get("principle") or (
+            graph_chain.get("summary", "") if graph_chain else ""
+        )
+
+        if not llm_structured:
+            for section in ["short_answer", "principle", "causal_chain", "key_terms"]:
+                await s.emit(emitter.generation_section_completed(section=section))
+
+        # 10. 组装结果 — Agent 输出优先，V1 兜底
+        # Use LLM causal_chain if available, otherwise build from graph
+        llm_causal_chain = llm_structured.get("causal_chain", [])
+        if llm_causal_chain and isinstance(llm_causal_chain, list):
+            causal_chain_steps = [
+                CausalStep(
+                    node_id=step.get("node_id", f"node_{i}"),
+                    label_zh=step.get("label_zh", str(step)) if isinstance(step, dict) else str(step),
+                    label_en=step.get("label_en", "") if isinstance(step, dict) else "",
+                    relation=step.get("relation", "") if isinstance(step, dict) else "",
+                    explanation=step.get("explanation", "") if isinstance(step, dict) else "",
+                )
+                for i, step in enumerate(llm_causal_chain)
+            ]
+        else:
+            causal_chain_steps = [
                 CausalStep(
                     node_id=step.get("node_id", f"node_{i}"),
                     label_zh=step.get("label_zh", step) if isinstance(step, dict) else str(step),
@@ -175,8 +238,22 @@ class QAService:
                     explanation=step.get("explanation", "") if isinstance(step, dict) else "",
                 )
                 for i, step in enumerate(causal_chain)
-            ] if causal_chain else [],
-            key_terms=[
+            ] if causal_chain else []
+
+        # Use LLM key_terms if available
+        llm_terms = llm_structured.get("key_terms", [])
+        if llm_terms and isinstance(llm_terms, list):
+            key_terms_steps = [
+                KeyTerm(
+                    zh=t.get("zh", ""),
+                    en=t.get("en", ""),
+                    category=t.get("category"),
+                    definition_zh=t.get("definition_zh"),
+                )
+                for t in llm_terms if isinstance(t, dict)
+            ]
+        else:
+            key_terms_steps = [
                 KeyTerm(
                     zh=t.get("zh", ""),
                     en=t.get("en", ""),
@@ -184,8 +261,29 @@ class QAService:
                     definition_zh=t.get("definition_zh"),
                 )
                 for t in key_terms
-            ],
-            misconceptions=misconceptions,
+            ]
+
+        # Use LLM misconceptions if available
+        llm_misconceptions = llm_structured.get("misconceptions", [])
+        if llm_misconceptions and isinstance(llm_misconceptions, list):
+            misconceptions_list = [
+                m if isinstance(m, str) else str(m) for m in llm_misconceptions
+            ]
+        else:
+            misconceptions_list = misconceptions
+
+        # Assemble prompt for debug
+        assembled_prompt = f"QAAgent v{llm_trace.get('prompt_version', 'V1')}" if llm_trace else ""
+
+        result = QAResult(
+            question=request.question,
+            knowledge_id=request.knowledge_id or "K001",
+            chain_id=chain_id or "C001",
+            short_answer=short_answer,
+            principle=principle,
+            causal_chain=causal_chain_steps,
+            key_terms=key_terms_steps,
+            misconceptions=misconceptions_list,
             recommended_question_id=self_test.get("question_id") if self_test else None,
             sources=[
                 SourceReference(
@@ -203,12 +301,15 @@ class QAService:
                 )
                 for s in sources[:10]
             ],
-            prompt="",  # TODO (V2): build_constrained_qa_prompt
+            prompt=assembled_prompt,
             retrieval_debug={
                 "query": request.question,
                 "zh_count": len(zh_results),
                 "en_count": len(en_results),
                 "image_count": len(image_results),
+                "ai_powered": bool(llm_structured),
+                "agent_confidence": llm_trace.get("model_name", ""),
+                "agent_evidence": llm_evidence.get("summary", "") if llm_evidence else "",
             },
         )
 
@@ -353,6 +454,15 @@ class QAService:
                     "difficulty": q.get("difficulty", ""),
                 }
         return best_match
+
+    def _extract_graph_nodes(self, graph_chain: dict | None) -> list[dict]:
+        """Extract node details from the knowledge graph for the Agent."""
+        if not graph_chain:
+            return []
+        graph = self.knowledge.get_knowledge_graph()
+        node_map = {n["id"]: n for n in graph.get("nodes", [])}
+        path_ids = set(graph_chain.get("path", []))
+        return [node_map[nid] for nid in path_ids if nid in node_map]
 
     def _extract_sources(
         self,

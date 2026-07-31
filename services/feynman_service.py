@@ -2,18 +2,22 @@
 费曼学习法评价服务。
 
 核心理念：checklist 关键词匹配 → 五维度打分 → 结构化评价结果。
-V1 用关键词匹配，接入 LLM 后替换 evaluate 逻辑即可。
+V1 用关键词匹配，V2 用 LLM Agent 替代 evaluate 逻辑。
 
 V2：返回 ServiceResult[FeynmanResult]，统一错误处理。
 向后兼容：evaluate_legacy() 返回旧 dict 格式。
 """
 
 import json
+import logging
 import re
 from pathlib import Path
 
 from schemas.feynman import FeynmanResult, DimensionScores
 from schemas.common import ServiceResult, ServiceError, ServiceErrorType
+from schemas.agent import create_agent_context
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FEYNMAN_PATH = BASE_DIR / "data" / "feynman.json"
@@ -99,13 +103,16 @@ def _score_clarity(text: str, max_score: int = 16) -> int:
 # 新版：返回 ServiceResult[FeynmanResult]
 # ═══════════════════════════════════════════════════════════
 
-def evaluate(explanation: str, feynman_id: str = "F001") -> ServiceResult[FeynmanResult]:
+def evaluate(explanation: str, feynman_id: str = "F001", llm_client=None) -> ServiceResult[FeynmanResult]:
     """
     评价学生的费曼解释。
+
+    V2：LLM Agent 评价（V1 关键词 fallback）。
 
     参数:
         explanation: 学生的解释文本
         feynman_id: 评价标准 ID
+        llm_client: 可选 LLM 客户端，用于 AI 评价
 
     返回:
         ServiceResult[FeynmanResult]
@@ -120,6 +127,16 @@ def evaluate(explanation: str, feynman_id: str = "F001") -> ServiceResult[Feynma
             )],
         )
 
+    # ── V2: LLM Agent ──
+    if llm_client is not None:
+        try:
+            agent_result = _evaluate_with_agent(llm_client, explanation, rubric)
+            if agent_result is not None:
+                return agent_result
+        except Exception as e:
+            logger.warning(f"FeynmanAgent failed, falling back to V1 keyword: {e}")
+
+    # ── V1: keyword-based fallback ──
     checklist = rubric.get("checklist", [])
     if not checklist:
         return ServiceResult(
@@ -130,7 +147,6 @@ def evaluate(explanation: str, feynman_id: str = "F001") -> ServiceResult[Feynma
             )],
         )
 
-    # ── 逐条检查 checklist ──
     covered_points: list[str] = []
     missing_points: list[str] = []
     dim_scores: dict[str, int] = {
@@ -192,6 +208,66 @@ def evaluate(explanation: str, feynman_id: str = "F001") -> ServiceResult[Feynma
     )
 
     return ServiceResult(success=True, result=result)
+
+
+# ═══════════════════════════════════════════════════════════
+# LLM Agent 集成
+# ═══════════════════════════════════════════════════════════
+
+def _evaluate_with_agent(llm_client, explanation: str, rubric: dict) -> ServiceResult[FeynmanResult] | None:
+    """Use FeynmanAgent to evaluate the explanation via LLM."""
+    import asyncio
+    from agents.feynman_agent import FeynmanAgent
+
+    feynman_id = rubric.get("feynman_id", "F001")
+
+    agent_ctx = create_agent_context(
+        session_id="feynman",
+        student_input=explanation,
+        feynman_rubric=rubric,
+        metadata={"feynman_id": feynman_id},
+    )
+
+    agent = FeynmanAgent(llm_client)
+    agent_result = _run_async(agent.run(agent_ctx))
+
+    if not agent_result or not agent_result.structured_data:
+        return None
+
+    sd = agent_result.structured_data
+    dim_scores = sd.get("dimension_scores", {})
+
+    result = FeynmanResult(
+        feynman_id=feynman_id,
+        total_score=sd.get("total_score", 0),
+        dimension_scores=DimensionScores(
+            concept_accuracy=dim_scores.get("concept_accuracy", 0),
+            causal_completeness=dim_scores.get("causal_completeness", 0),
+            term_accuracy=dim_scores.get("term_accuracy", 0),
+            clarity=dim_scores.get("clarity", 0),
+            misconception_control=dim_scores.get("misconception_control", 0),
+        ),
+        covered_points=sd.get("covered_points", []),
+        missing_points=sd.get("missing_points", []),
+        incorrect_points=sd.get("incorrect_points", []),
+        next_question=sd.get("next_question", ""),
+    )
+    return ServiceResult(success=True, result=result)
+
+
+def _run_async(coro):
+    """Run an async coroutine in a sync-compatible way."""
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, coro)
+                return future.result(timeout=60)
+        return asyncio.run(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
 
 
 # ═══════════════════════════════════════════════════════════

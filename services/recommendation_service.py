@@ -7,12 +7,13 @@
   3. 费曼评价 → missing_points
   4. 知识图谱 → 先修关系
 
-V1 不接大模型，纯规则映射。
+V1 纯规则映射，V2 用 GraphReasoningAgent 推理缺失先修和因果断裂。
 
 V2：返回 ServiceResult[LearningPathResult]，统一错误处理。
 向后兼容：generate_learning_path_legacy() 返回旧 dict。
 """
 
+import logging
 from collections import OrderedDict
 from datetime import datetime, UTC
 
@@ -20,6 +21,9 @@ from schemas.recommendation import (
     LearningPathResult, WeakPointDetail, RecommendedStep,
 )
 from schemas.common import MasteryLevel, ServiceResult
+from schemas.agent import create_agent_context
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -192,9 +196,12 @@ def generate_learning_path(
     diagnosis_result: dict | None = None,
     socratic_result: dict | None = None,
     feynman_result: dict | None = None,
+    llm_client=None,
 ) -> ServiceResult[LearningPathResult]:
     """
     聚合三个来源的薄弱点 → 映射知识单元 → 按先修关系排序 → 生成推荐路径。
+
+    V2：可选 GraphReasoningAgent 推理缺失先修节点。
 
     返回:
         ServiceResult[LearningPathResult]
@@ -206,8 +213,25 @@ def generate_learning_path(
     if not weak_points:
         weak_points = ["淬火", "马氏体", "晶格畸变"]
 
+    # ── V2: LLM Graph Reasoning ──
+    graph_causal_gaps: list[str] = []
+    graph_missing_prereqs: list[str] = []
+    if llm_client is not None:
+        try:
+            graph_insights = _reason_with_agent(llm_client, weak_points)
+            if graph_insights:
+                graph_causal_gaps = graph_insights.get("causal_gaps", [])
+                graph_missing_prereqs = graph_insights.get("missing_prerequisites", [])
+        except Exception as e:
+            logger.warning(f"GraphReasoningAgent failed, using V1 mapping: {e}")
+
     # 2. 映射到知识单元
     unit_ids = _map_weak_points_to_units(weak_points)
+
+    # 补充 Agent 发现的缺失先修节点
+    for prereq in graph_missing_prereqs:
+        if prereq in KNOWLEDGE_UNITS and prereq not in unit_ids:
+            unit_ids.append(prereq)
 
     # 确保 K001 始终在推荐中
     if "K001" not in unit_ids and len(unit_ids) < 3:
@@ -231,7 +255,7 @@ def generate_learning_path(
     # 5. 判断掌握程度
     current_level = _determine_level(weak_points)
 
-    # 6. 构建 WeakPointDetail 列表（带来源追踪）
+    # 6. 构建 WeakPointDetail 列表（带来源追踪 + causal gaps）
     weak_point_details: list[WeakPointDetail] = []
     for point in weak_points:
         source = _trace_source(point, diagnosis_result, socratic_result, feynman_result)
@@ -241,6 +265,15 @@ def generate_learning_path(
             source=source,
             mapped_knowledge_id=mapped_id,
         ))
+
+    # 追加 GraphReasoningAgent 发现的因果断裂
+    for gap in graph_causal_gaps:
+        if gap and gap not in [w.point for w in weak_point_details]:
+            weak_point_details.append(WeakPointDetail(
+                point=gap,
+                source="graph_reasoning",
+                mapped_knowledge_id=_map_point_to_knowledge_id(gap),
+            ))
 
     result = LearningPathResult(
         current_level=current_level,
@@ -252,6 +285,61 @@ def generate_learning_path(
     )
 
     return ServiceResult(success=True, result=result)
+
+
+# ═══════════════════════════════════════════════════════════
+# LLM Agent 集成
+# ═══════════════════════════════════════════════════════════
+
+def _reason_with_agent(llm_client, weak_points: list[str]) -> dict | None:
+    """Use GraphReasoningAgent to find missing prerequisites and causal gaps."""
+    import asyncio
+    from agents.graph_reasoning_agent import GraphReasoningAgent
+
+    # Build graph nodes from KNOWLEDGE_UNITS (V1 hardcoded)
+    graph_nodes = [
+        {"id": uid, "label_zh": info.get("title", uid), "description": info.get("description", "")}
+        for uid, info in KNOWLEDGE_UNITS.items()
+    ]
+    graph_edges = []
+    for uid, info in KNOWLEDGE_UNITS.items():
+        for prereq in info.get("prerequisites", []):
+            graph_edges.append({
+                "source": prereq,
+                "target": uid,
+                "relation": "requires",
+            })
+
+    agent_ctx = create_agent_context(
+        session_id="recommendation",
+        student_input="",
+        graph_nodes=graph_nodes,
+        graph_edges=graph_edges,
+        metadata={"weak_points": weak_points},
+    )
+
+    agent = GraphReasoningAgent(llm_client)
+    agent_result = _run_async(agent.run(agent_ctx))
+
+    if not agent_result or not agent_result.structured_data:
+        return None
+
+    return agent_result.structured_data
+
+
+def _run_async(coro):
+    """Run an async coroutine in a sync-compatible way."""
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, coro)
+                return future.result(timeout=60)
+        return asyncio.run(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
 
 
 # ═══════════════════════════════════════════════════════════
