@@ -203,7 +203,7 @@ CaiZhi-Agent/
 │
 ├── infrastructure/                # ★ 具体实现层
 │   ├── chroma_store.py            #   ChromaDB RAG 实现（RAGRepository）
-│   ├── llm_client.py              #   LLM 客户端封装（占位）
+│   ├── llm_client.py              #   LLM 客户端（Anthropic/DeepSeek/OpenAI，含重试）
 │   ├── file_knowledge_repo.py     #   文件知识库实现（KnowledgeRepository）
 │   ├── memory_session.py          #   内存会话存储（SessionRepository）
 │   ├── sqlite_session.py          #   SQLite 会话存储（占位）
@@ -250,6 +250,7 @@ CaiZhi-Agent/
 │   ├── base.py                     #   BaseAgent Protocol + 共享 helpers
 │   ├── qa_agent.py                 #   智能答疑 — RAG+术语+图谱 → 结构化回答
 │   ├── diagnosis_agent.py          #   错题诊断 — 因果推理断裂点分析
+│   ├── mistake_diagnosis_agent.py  #   (空 stub，未引用)
 │   ├── socratic_agent.py           #   苏格拉底引导 — LLM 判断回答质量 → 动作决策
 │   ├── feynman_agent.py            #   费曼评价 — LLM 五维度评分 + 错误检测
 │   ├── graph_reasoning_agent.py    #   图谱推理 — 缺失先修节点 + 因果断裂
@@ -319,7 +320,7 @@ CaiZhi-Agent/
   #  指标                     得分       说明
   ---------------------------------------------------------------
   1  双语检索指标                  53.2%   ZH=58% EN=48% 关键词命中率近似
-  2  回答关键点覆盖率                 0.0%   V1 占位文本为空（LLM 待接入）
+  2  回答关键点覆盖率                 0.0%   评测走 V1 规则引擎，图谱摘要未覆盖关键点
   3  因果链完整度                   3.0%   仅 C001 存在，C002-C010 缺失
   4  误区诊断准确率                100.0%   10 道题 40 个测试点全部通过
   5  苏格拉底引导匹配率               88.9%   S001 的 16/18 步骤判定正确
@@ -481,7 +482,8 @@ pip install -r requirements.txt
 复制 `.env.example` 为 `.env`（如无可直接创建），填入 API Key：
 
 ```bash
-# LLM Provider（当前默认：DeepSeek，国内可用）
+# LLM Provider —— 代码默认 anthropic/claude-sonnet-4-6
+# 本项目当前 .env 使用 DeepSeek（国内可用）；如需默认 Anthropic 可不设置 LLM_PROVIDER
 LLM_PROVIDER=deepseek
 DEEPSEEK_API_KEY=sk-...
 DEEPSEEK_MODEL=deepseek-chat
@@ -553,7 +555,7 @@ streamlit run app.py
 
 | 页面 | Service | V2 返回类型 | 说明 |
 |------|---------|------------|------|
-| 1. 智能答疑 | `qa_service` | `ServiceResult[QAResult]` | 组合四种数据源，固定 7 区块输出。LLM prompt 已构建，待接入。 |
+| 1. 智能答疑 | `qa_service` | `ServiceResult[QAResult]` | 组合四种数据源，固定 7 区块输出。LLM 已接入（QAAgent），V1 图谱摘要兜底。 |
 | 2. 错题诊断 | `diagnosis_service` | `ServiceResult[DiagnosisResult]` | `submit_answer()` 误区定位 + `misconception_id` |
 | 3. 苏格拉底引导 | `socratic_service` | `ServiceResult[SocraticStepResult]` | `judge_answer()` → advance/hint/retry/simplify |
 | 4. 费曼评价 | `feynman_service` | `ServiceResult[FeynmanResult]` | `evaluate()` 五维度打分（满分 78） |
