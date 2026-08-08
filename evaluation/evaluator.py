@@ -56,6 +56,7 @@ class Evaluator:
         # 惰性初始化—首次调用时加载
         self._retriever = None
         self._qas = None      # QA "service" 模块 (函数式)
+        self._qa_rule = None  # 规则路径 QAService（llm_client=None，评测不调用 LLM）
         self._stats = get_statistics()
 
     # ── 惰性属性 ────────────────────────────────────────────
@@ -66,6 +67,53 @@ class Evaluator:
             from rag.bilingual_retriever import BilingualRetriever
             self._retriever = BilingualRetriever()
         return self._retriever
+
+    @property
+    def qa_rule(self):
+        """规则路径 QAService — 不注入 LLM，走 V1 关键词/图谱 fallback。
+
+        评测基线声称"纯规则驱动、不依赖 LLM"。
+        旧版 answer_question() 重构后会强制创建真实 LLM client
+        （DeepSeek 网络调用，无超时会导致评测卡死），故这里直接构造
+        llm_client=None 的服务，测的是规则引擎本身。
+        """
+        if self._qa_rule is None:
+            from infrastructure.chroma_store import ChromaStore
+            from infrastructure.file_knowledge_repo import FileKnowledgeRepository
+            from services.qa_service import QAService
+
+            self._qa_rule = QAService(
+                rag_repo=ChromaStore(),
+                knowledge_repo=FileKnowledgeRepository(),
+                llm_client=None,  # 关键：禁用 LLM
+            )
+        return self._qa_rule
+
+    @staticmethod
+    def _unwrap_sr(sr, fallback: dict | None = None) -> dict:
+        """把 ServiceResult 拆成普通 dict；失败时返回 fallback 或空 dict。
+
+        ServiceResult 重构后（schemas/common.py），services 返回
+        ServiceResult[T] 而非裸 dict。评测器统一在此拆包 .result。
+        """
+        if sr is not None and getattr(sr, "success", False) and sr.result is not None:
+            if isinstance(sr.result, dict):
+                return sr.result
+            return sr.result.model_dump()
+        return fallback if fallback is not None else {}
+
+    @staticmethod
+    def _flatten_answer(result: dict) -> str:
+        """把 QAResult dict 中的生成文本拼成一段（含因果链步骤）。"""
+        parts = [
+            result.get("short_answer", ""),
+            result.get("principle", ""),
+        ]
+        for step in result.get("causal_chain", []):
+            if isinstance(step, dict):
+                parts.append(step.get("label_zh", ""))
+                parts.append(step.get("explanation", ""))
+        return " ".join(parts).lower()
 
     # ═══════════════════════════════════════════════════════════
     # 主入口
@@ -169,7 +217,7 @@ class Evaluator:
         lines.append("    1. 苏格拉底链仅 S001 测试（S002-S010 数据缺失）")
         lines.append("    2. 因果链仅 C001 存在定义（C002-C010 缺失）")
         lines.append("    3. 检索用关键词命中率近似（无精确 chunk ground truth）")
-        lines.append("    4. QA 回答当前为占位文本（LLM 待接入）")
+        lines.append("    4. 评测走 V1 规则引擎（不注入 LLM）；Agent 层需单独评测")
         lines.append("    5. 费曼维度映射为 F001 特化，F002-F010 维度分配可能不准")
         lines.append("")
 
@@ -293,10 +341,12 @@ class Evaluator:
 
     def _eval_keypoint_coverage(self) -> dict:
         """
-        对 10 个 case 调用 answer_question(), 检查返回文本中
+        对 10 个 case 调用 qa_rule.answer(), 检查返回文本中
         expected_key_points 的覆盖比例。
         """
-        from services.qa_service import answer_question
+        import asyncio
+
+        from schemas.qa import QARequest
 
         cases = load_qa_cases()
         if not cases:
@@ -315,13 +365,11 @@ class Evaluator:
             missed: list[str] = []
 
             try:
-                result = answer_question(question)
-                # 合并所有生成文本（V1 用 graph summary）
-                answer_text = " ".join([
-                    result.get("short_answer", ""),
-                    result.get("principle", ""),
-                    result.get("causal_chain_summary", ""),
-                ]).lower()
+                req = QARequest(session_id="eval", question=question)
+                sr = asyncio.run(self.qa_rule.answer(req))
+                result = self._unwrap_sr(sr)
+                # 合并所有生成文本（V1 用 graph summary + 因果链步骤）
+                answer_text = self._flatten_answer(result)
 
                 for point in expected_points:
                     if self._text_covers_point(answer_text, point):
@@ -391,8 +439,10 @@ class Evaluator:
         - chain_id 是否匹配 expected_chain_id
         - 返回 answer 中是否包含链节点的关键标签
         """
+        import asyncio
+
         from knowledge.knowledge_graph import match_chain, get_chain_by_id, load_knowledge_graph
-        from services.qa_service import answer_question
+        from schemas.qa import QARequest
 
         cases = load_qa_cases()
         graph = load_knowledge_graph()
@@ -420,7 +470,9 @@ class Evaluator:
             nodes_missed: list[str] = []
 
             try:
-                result = answer_question(question)
+                req = QARequest(session_id="eval", question=question)
+                sr = asyncio.run(self.qa_rule.answer(req))
+                result = self._unwrap_sr(sr)
                 answer_text = " ".join([
                     result.get("short_answer", ""),
                     result.get("principle", ""),
@@ -489,7 +541,7 @@ class Evaluator:
         correct_ok = 0
         for p in correct_tests:
             try:
-                r = submit_answer(p["question_id"], p["option"])
+                r = self._unwrap_sr(submit_answer(p["question_id"], p["option"]))
                 if r.get("is_correct") is True:
                     correct_ok += 1
             except Exception as exc:
@@ -505,7 +557,7 @@ class Evaluator:
 
         for p in wrong_tests:
             try:
-                r = submit_answer(p["question_id"], p["option"])
+                r = self._unwrap_sr(submit_answer(p["question_id"], p["option"]))
                 has_misconception = bool(r.get("misconception", ""))
                 has_missing = bool(r.get("missing_concepts", []))
                 has_path = bool(r.get("remedial_path", []))
@@ -572,7 +624,9 @@ class Evaluator:
             step_id = step.get("step", 0)
 
             try:
-                result = judge_answer(step, p["student_answer"], p["attempt_count"])
+                result = self._unwrap_sr(
+                    judge_answer(step, p["student_answer"], p["attempt_count"])
+                )
                 actual_action = result.get("action", "?")
 
                 # expected_action 可能是字符串或集合
@@ -658,7 +712,7 @@ class Evaluator:
                     continue
 
                 try:
-                    result = evaluate(tp["explanation"], fid)
+                    result = self._unwrap_sr(evaluate(tp["explanation"], fid))
                     scores[ttype] = result.get("total_score", 0)
                 except Exception as exc:
                     logger.warning("Feynman test failed %s/%s: %s", fid, ttype, exc)
@@ -723,10 +777,12 @@ class Evaluator:
             checks = sc.get("checks", {})
 
             try:
-                result = generate_learning_path(
-                    diagnosis_result=sc.get("diagnosis_result"),
-                    socratic_result=sc.get("socratic_result"),
-                    feynman_result=sc.get("feynman_result"),
+                result = self._unwrap_sr(
+                    generate_learning_path(
+                        diagnosis_result=sc.get("diagnosis_result"),
+                        socratic_result=sc.get("socratic_result"),
+                        feynman_result=sc.get("feynman_result"),
+                    )
                 )
 
                 steps = result.get("recommended_steps", [])
